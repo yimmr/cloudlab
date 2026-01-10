@@ -12,7 +12,7 @@ configure_hysteria() {
 
     # 写入配置
     cat > "$CONFIG_DIR/config.yaml" <<EOF
-listen: :$port
+listen: $port
 tls:
   cert: $TLS_DIR/$domain.crt
   key: $TLS_DIR/$domain.key
@@ -30,7 +30,7 @@ EOF
     systemctl restart hysteria-server.service
     log_info "Hysteria2 配置并重启完成"
 
-    echo -e "\033[0;32mClash节点:\033[0m"
+    echo -e "Clash节点:"
     echo -e "\033[0;32m{
     name: '$(domain_to_agent_name_with_icon $domain)',
     type: hysteria2,
