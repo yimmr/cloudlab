@@ -4,8 +4,6 @@ export LANG=en_US.UTF-8
 
 set -euo pipefail
 
-trap 'echo "❌ 错误：命令 '\''\$BASH_COMMAND'\'' 在第 $LINENO 行执行失败，退出码=$?" >&2; exit 1' ERR
-
 echo -e "\033[36m(oﾟvﾟ)ノ\033[0m 接下来如果程序报错退出，则可以调用 \033[0;32m./bin/config\033[0m 继续安装~"
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)

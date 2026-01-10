@@ -107,7 +107,7 @@ multiple_ports() {
 
     INTERFACE=$(ip route get 8.8.8.8 | awk '{print $5; exit}')
     if [[ -z "$INTERFACE" ]]; then
-        log_err "无法检测到主网卡，跳过 iptables 配置"
+        log_err "无法检测到主网卡"
         return 1
     fi
     log_step "检测到主网卡: $INTERFACE"
@@ -116,15 +116,31 @@ multiple_ports() {
 
     # 幂等性处理：先尝试删除旧规则，防止重复追加
     # 无论是否存在，先删一遍（抑制错误输出）
-    iptables -t nat -D PREROUTING -i "$INTERFACE" -p udp --dport "$HOP_RANGE" -j REDIRECT --to-ports "$TARGET_PORT" 2>/dev/null
-    ip6tables -t nat -D PREROUTING -i "$INTERFACE" -p udp --dport "$HOP_RANGE" -j REDIRECT --to-ports "$TARGET_PORT" 2>/dev/null
+    iptables -t nat -D PREROUTING -i "$INTERFACE" -p udp --dport "$HOP_RANGE" -j REDIRECT --to-ports "$TARGET_PORT" 2>/dev/null || true
+    ip6tables -t nat -D PREROUTING -i "$INTERFACE" -p udp --dport "$HOP_RANGE" -j REDIRECT --to-ports "$TARGET_PORT" 2>/dev/null || true
 
-    # 添加新规则
-    iptables -t nat -A PREROUTING -i $INTERFACE -p udp --dport $HOP_RANGE -j REDIRECT --to-ports $TARGET_PORT
-    ip6tables -t nat -A PREROUTING -i $INTERFACE -p udp --dport $HOP_RANGE -j REDIRECT --to-ports $TARGET_PORT
+    # 添加新规则（添加错误处理）
+    if ! iptables -t nat -A PREROUTING -i "$INTERFACE" -p udp --dport "$HOP_RANGE" -j REDIRECT --to-ports "$TARGET_PORT" 2>&1; then
+        log_err "iptables IPv4 规则添加失败，请检查："
+        log_err "  1. 是否以 root 权限运行"
+        log_err "  2. HOP_RANGE 格式是否正确（应为 20000:50000 或单个端口）"
+        log_err "  3. iptables 是否正常工作"
+        return 1
+    fi
+
+    if ! ip6tables -t nat -A PREROUTING -i "$INTERFACE" -p udp --dport "$HOP_RANGE" -j REDIRECT --to-ports "$TARGET_PORT" 2>&1; then
+        log_warn "ip6tables IPv6 规则添加失败（可能系统未启用 IPv6，可忽略）"
+    else
+        log_step "IPv4 和 IPv6 iptables 规则添加成功"
+    fi
 
     if command -v netfilter-persistent &> /dev/null; then
-        netfilter-persistent save
-        log_step "规则已通过 netfilter-persistent 持久化保存。"
+        if netfilter-persistent save 2>&1; then
+            log_step "规则已通过 netfilter-persistent 持久化保存。"
+        else
+            log_warn "netfilter-persistent 保存失败，规则可能在重启后丢失"
+        fi
+    else
+        log_warn "未找到 netfilter-persistent，规则可能在重启后丢失"
     fi
 }
