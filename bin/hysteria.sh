@@ -55,6 +55,7 @@ EOF
     ${bandwidth_opts}
     skip-cert-verify: false
 }\033[0m" | tr -s '[:space:]' ' '
+    echo ""
 }
 
 
