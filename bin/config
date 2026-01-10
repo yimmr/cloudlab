@@ -80,9 +80,6 @@ install_hysteria_if
 
 docker compose up -d
 
-raw_tlsdir="$PROJECT_DIR/caddy/data/caddy/certificates/acme-v02.api.letsencrypt.org-directory/$domain"
-tlsdir="/etc/hysteria/certs"
-mkdir -p $tlsdir
-ln -sf $raw_tlsdir/* $tlsdir
+tlsdir="/etc/caddy/caddy/certificates/acme-v02.api.letsencrypt.org-directory/$domain"
 
 configure_hysteria "$domain" "$password" 443 "$tlsdir" "$bw_up" "$bw_down"
