@@ -6,9 +6,14 @@ configure_hysteria() {
     local port=${3:-443}
     local CONFIG_DIR='/etc/hysteria'
     local TLS_DIR=$4
+    local bw_up=$5
+    local bw_down=$6
 
     log_info "配置 Hysteria2..."
     mkdir -p "$CONFIG_DIR"
+
+    chown -R root:hysteria $TLS_DIR
+    chmod -R 640 $TLS_DIR
 
     # 写入配置
     cat > "$CONFIG_DIR/config.yaml" <<EOF
@@ -30,16 +35,29 @@ EOF
     systemctl restart hysteria-server.service
     log_info "Hysteria2 配置并重启完成"
 
+    # 构建带宽配置选项
+    local bandwidth_opts=""
+    if [ -n "$bw_up" ]; then
+        local up_value=$(awk "BEGIN {printf \"%.0f\", $bw_up * 0.9}")
+        bandwidth_opts="${bandwidth_opts} up: ${up_value},"$'\n'
+    fi
+    if [ -n "$bw_down" ]; then
+        local down_value=$(awk "BEGIN {printf \"%.0f\", $bw_down * 0.9}")
+        bandwidth_opts="${bandwidth_opts} down: ${down_value},"$'\n'
+    fi
+
     echo -e "Clash节点:"
-    echo -e "\033[0;32m{
+    echo -e "\033[0;32m
+- {
     name: '$(domain_to_agent_name_with_icon $domain)',
     type: hysteria2,
     server: $domain,
     port: $port,
     password: $password,
     sni: $domain,
+    ${bandwidth_opts}
     skip-cert-verify: false
-}\033[0m"
+}\033[0m" | tr -s '[:space:]' ' '
 }
 
 

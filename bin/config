@@ -17,25 +17,28 @@ if [ -z "$domain" ]; then
     exit 1
 fi
 
-cf_token=$(prompt "Cloudflare API令牌（或留空回车跳过申请证书）: " "")
+# cf_token=$(prompt "Cloudflare API令牌（或留空回车跳过申请证书）: " "")
 
-if [ -n "$cf_token" ]; then
-    ssl_domain=$(prompt "申请证书的域名（多域名用,分隔）: " "$domain")
-    ssl_domain=${ssl_domain:-$domain}
-fi
+# if [ -n "$cf_token" ]; then
+#     ssl_domain=$(prompt "申请证书的域名（多域名用,分隔）: " "$domain")
+#     ssl_domain=${ssl_domain:-$domain}
+# fi
 
-if [ -n "$cf_token" ] && [ -n "$ssl_domain" ]; then
-    mail=$(prompt "订阅域名通知的邮箱地址（或留空回车拒绝通知）: " "")
-    if [ -n "$mail" ]; then
-        mail="-m $mail"
-    fi
-    echo -e "\033[32m::\033[0m 正在申请证书..."
-    rm -rf certbot
-    ./bin/cert auto -d $ssl_domain -t $cf_token $mail -r false
-    echo -e "\033[32m✓\033[0m 申请证书成功！"
-else
-    echo -e "\033[32m::\033[0m 已跳过申请证书"
-fi
+# if [ -n "$cf_token" ] && [ -n "$ssl_domain" ]; then
+#     mail=$(prompt "订阅域名通知的邮箱地址（或留空回车拒绝通知）: " "")
+#     if [ -n "$mail" ]; then
+#         mail="-m $mail"
+#     fi
+#     echo -e "\033[32m::\033[0m 正在申请证书..."
+#     rm -rf certbot
+#     ./bin/cert auto -d $ssl_domain -t $cf_token $mail -r false
+#     echo -e "\033[32m✓\033[0m 申请证书成功！"
+# else
+#     echo -e "\033[32m::\033[0m 已跳过申请证书"
+# fi
+
+bw_up=$(prompt "带宽上传（纯数字mbps，仅配置客户端）: " "")
+bw_down=$(prompt "带宽下载（纯数字mbps，仅配置客户端）: " "")
 
 password=$(prompt "请输入客户端访问密码（或留空回车用随机密码）: " "")
 if [ -z "$password" ]; then
@@ -77,4 +80,9 @@ install_hysteria_if
 
 docker compose up -d
 
-configure_hysteria "$domain" "$password" 443 "$PROJECT_DIR/caddy/data/caddy/certificates/local/acme-v02.api.letsencrypt.org-directory/$domain"
+raw_tlsdir="$PROJECT_DIR/caddy/data/caddy/certificates/acme-v02.api.letsencrypt.org-directory/$domain"
+tlsdir="/etc/hysteria/certs"
+mkdir -p $tlsdir
+ln -sf $raw_tlsdir/* $tlsdir
+
+configure_hysteria "$domain" "$password" 443 "$tlsdir" "$bw_up" "$bw_down"
