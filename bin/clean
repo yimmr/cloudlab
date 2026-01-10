@@ -1,7 +1,15 @@
 #!/bin/bash
 
+read -p "⚠️ 确认要下线容器服务，清除所有数据和配置？(y/N): " -n 1 -r && echo && [[ $REPLY =~ ^[Yy]$ ]] || { echo "已取消。"; exit 1; }
+
+docker compose down
+
 sudo rm -rf /etc/hysteria
 
 sudo rm -rf ./caddy
 
 sudo rm -rf ./dbdata
+
+sudo rm -rf .env
+
+
