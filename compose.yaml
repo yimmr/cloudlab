@@ -13,7 +13,7 @@ services:
         - ./site:/srv
         - /var/run/docker.sock:/var/run/docker.sock
       labels:
-        caddy: ${SITE_DOMAIN:-site.localhost}
+        caddy: ${HOSTNAME:-site.localhost}
         caddy.root: "* /srv"
         caddy.file_server: ""
   db:
