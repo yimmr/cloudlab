@@ -1,0 +1,7 @@
+#!/bin/bash
+
+sudo rm -rf /etc/hysteria
+
+sudo rm -rf ./caddy
+
+sudo rm -rf ./dbdata

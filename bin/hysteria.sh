@@ -1,6 +1,5 @@
 #!/bin/bash
 
-
 configure_hysteria() {
     local domain=$1
     local password=$2
