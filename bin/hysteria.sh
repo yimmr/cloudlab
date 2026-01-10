@@ -38,7 +38,7 @@ EOF
     systemctl restart hysteria-server.service
     log_step "Hysteria2 配置并重启完成"
 
-    multiple_ports $port
+    multiple_ports $port $HOP_RANGE
 
     # 构建带宽配置选项
     local bandwidth_opts=""

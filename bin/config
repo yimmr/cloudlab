@@ -86,8 +86,10 @@ log_step "开始安装和配置 hysteria2 ..."
 
 install_hysteria_if
 
+log_step "正在重启公共容器（Caddy代理、数据库等） ..."
 docker compose down || true
 docker compose up -d
+log_step "公共容器重启完成"
 
 tlsdir="/etc/hysteria/certs"
 
