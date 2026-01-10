@@ -12,9 +12,6 @@ configure_hysteria() {
     log_info "配置 Hysteria2..."
     mkdir -p "$CONFIG_DIR"
 
-    chown -R root:hysteria $TLS_DIR
-    chmod -R 640 $TLS_DIR
-
     # 写入配置
     cat > "$CONFIG_DIR/config.yaml" <<EOF
 # listen: $port

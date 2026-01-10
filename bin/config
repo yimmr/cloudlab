@@ -83,3 +83,7 @@ docker compose up -d
 tlsdir="/etc/caddy/caddy/certificates/acme-v02.api.letsencrypt.org-directory/$domain"
 
 configure_hysteria "$domain" "$password" 443 "$tlsdir" "$bw_up" "$bw_down"
+
+chmod -R 755 "/etc/caddy/caddy/certificates"
+
+./bin/restart
