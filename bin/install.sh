@@ -6,7 +6,7 @@ PROJECT_NAME='cloudlab'
 
 set -euo pipefail
 
-trap 'echo "发生错误。请检查上面的错误消息并重试。"; exit 1' ERR
+trap 'echo "❌ 错误：命令 '\''\$BASH_COMMAND'\'' 在第 $LINENO 行执行失败，退出码=$?" >&2; exit 1' ERR
 
 if [ "$EUID" -ne 0 ]; then
     echo "错误: 必须使用 root 权限运行此脚本" >&2

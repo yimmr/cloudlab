@@ -106,6 +106,10 @@ multiple_ports() {
     fi
 
     INTERFACE=$(ip route get 8.8.8.8 | awk '{print $5; exit}')
+    if [[ -z "$INTERFACE" ]]; then
+        log_err "无法检测到主网卡，跳过 iptables 配置"
+        return 1
+    fi
     log_step "检测到主网卡: $INTERFACE"
 
     log_step "正在配置 iptables 规则..."
