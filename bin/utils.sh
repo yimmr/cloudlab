@@ -127,3 +127,11 @@ generate_password() {
 generate_ws_path(){
    echo "/wsol-$(shuf -i 10000-99999 -n 1)"
 }
+
+prompt() {
+    local message=$1
+    local default_value=$2
+    local user_input
+    read -e -p "$message" -i "$default_value" user_input
+    echo "${user_input:-$default_value}"
+}

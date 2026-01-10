@@ -24,7 +24,10 @@ then
     can_ins_docker=$(prompt "未安装Docker，是否安装？[y/n] : " "")
     if [ "$can_ins_docker" == "y" ]; then
         log_step "卸载所有Docker冲突的软件包 ..."
-        apt remove $(dpkg --get-selections docker.io docker-compose docker-compose-v2 docker-doc podman-docker containerd runc | cut -f1)
+        packages=$(dpkg --get-selections docker.io docker-compose docker-compose-v2 docker-doc podman-docker containerd runc 2>/dev/null | cut -f1 | grep -v "^$" || true)
+        if [ -n "$packages" ]; then
+            apt remove -y $packages || true
+        fi
 
         log_step "设置 Docker 的 apt 仓库 ..."
         # Add Docker's official GPG key:
@@ -78,22 +81,17 @@ if [ -d "./$PROJECT_NAME" ]; then
     exit 1
 fi
 
-# 确定脚本位置，如果空则可能是远程脚本
-DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-if [ -z "$DIR" ]; then
-    PROJECT_DIR="$(pwd)"
-else
-    PROJECT_DIR="$(dirname "$DIR")"
-fi
-
 log_step "开始部署项目..."
 
+# 确定项目目录位置
+PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+
 # 如果不在项目目录下则创建项目
-if [[ "$(basename "$DIR")" != "bin" ]] && [[ ! -d "$PROJECT_DIR/.git" ]]; then
+if [[ "$(basename "$SCRIPT_DIR")" != "bin" ]] && [[ ! -d "$PROJECT_DIR/.git" ]]; then
     git clone "https://github.com/yimmr/$PROJECT_NAME.git" $PROJECT_NAME
     cd "$PROJECT_NAME"
     PROJECT_DIR=$(pwd)
-    DIR="$PROJECT_DIR/bin"
+    SCRIPT_DIR="$PROJECT_DIR/bin"
 fi
 
 cd $PROJECT_DIR

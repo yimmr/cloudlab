@@ -4,6 +4,9 @@ export LANG=en_US.UTF-8
 
 set -euo pipefail
 
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+
 source "$SCRIPT_DIR/utils.sh"
 source "$SCRIPT_DIR/hysteria.sh"
 
@@ -34,17 +37,14 @@ else
     echo -e "\033[32m::\033[0m 已跳过申请证书"
 fi
 
-args="-h $domain"
-
 password=$(prompt "请输入客户端访问密码（或留空回车用随机密码）: " "")
-if [ -n "$password" ]; then
-    args="$args -P $(generate_password)"
+if [ -z "$password" ]; then
+    password=$(generate_password)
 fi
 
-SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 ENV_FILE="$PROJECT_DIR/.env"
 DEFAULT_ENV_NAME=".env.def"
+DEFAULT_ENV_FILE="$PROJECT_DIR/$DEFAULT_ENV_NAME"
 
 
 if [ ! -f "$ENV_FILE" ]; then
@@ -77,4 +77,4 @@ install_hysteria_if
 
 docker compose up -d
 
-configure_hysteria $args
+configure_hysteria "$domain" "$password"
