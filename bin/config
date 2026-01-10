@@ -4,6 +4,9 @@ export LANG=en_US.UTF-8
 
 set -euo pipefail
 
+source "$SCRIPT_DIR/utils.sh"
+source "$SCRIPT_DIR/hysteria.sh"
+
 domain=$(prompt "[必填]请输入客户端访问域名: " "")
 
 if [ -z "$domain" ]; then
@@ -39,9 +42,36 @@ if [ -n "$password" ]; then
 fi
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+ENV_FILE="$PROJECT_DIR/.env"
+DEFAULT_ENV_NAME=".env.def"
 
-source "$SCRIPT_DIR/utils.sh"
-source "$SCRIPT_DIR/hysteria.sh"
+
+if [ ! -f "$ENV_FILE" ]; then
+    echo -e "\033[32m::\033[0m不存在 .env 文件，正在从 $DEFAULT_ENV_NAME 复制..."
+    if [ -f "$DEFAULT_ENV_FILE" ]; then
+        cp "$DEFAULT_ENV_FILE" "$ENV_FILE"
+        echo -e "\033[32m::\033[0m已创建 .env 文件"
+    else
+        echo -e "\033[31m::\033[0m错误：不存在 $DEFAULT_ENV_NAME 文件"
+        exit 1
+    fi
+fi
+
+HOSTNAME=$domain
+VARS=("HOSTNAME")
+env_content=$(cat "$ENV_FILE")
+echo -e "\033[32m::\033[0m正在更新 .env 文件..."
+for var in "${VARS[@]}"; do
+    if [ -n "${!var}" ]; then
+        escaped_value=$(printf '%s\n' "${!var}" | sed 's:[\/&]:\\&:g')
+        env_content=$(echo "$env_content" | sed -E "s/^($var=).*/\1$escaped_value/")
+    fi
+done
+echo "$env_content" > "$ENV_FILE"
+echo -e "\033[32m::\033[0m已更新 .env 文件"
+
+# 开始安装
 
 install_hysteria_if
 
