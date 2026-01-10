@@ -4,6 +4,8 @@ export LANG=en_US.UTF-8
 
 set -euo pipefail
 
+echo -e "\033[36m(oﾟvﾟ)ノ\033[0m 接下来如果程序报错退出，则可以调用 \033[0;32m./bin/config\033[0m 继续安装~"
+
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
@@ -38,17 +40,22 @@ fi
 # fi
 
 bw_up=$(prompt "带宽上传（纯数字mbps，仅配置客户端）: " "")
+
 bw_down=$(prompt "带宽下载（纯数字mbps，仅配置客户端）: " "")
+
+port=$(prompt "协议监听的端口: " "443")
+
+hop_range=$(prompt "请输入跳跃端口范围 (格式如 20000:50000): " "20000:50000")
 
 password=$(prompt "请输入客户端访问密码（或留空回车用随机密码）: " "")
 if [ -z "$password" ]; then
     password=$(generate_password)
 fi
 
+log_step "开始更新环境变量 (.env 文件) ..."
 ENV_FILE="$PROJECT_DIR/.env"
 DEFAULT_ENV_NAME=".env.def"
 DEFAULT_ENV_FILE="$PROJECT_DIR/$DEFAULT_ENV_NAME"
-
 
 if [ ! -f "$ENV_FILE" ]; then
     echo -e "\033[32m::\033[0m不存在 .env 文件，正在从 $DEFAULT_ENV_NAME 复制..."
@@ -72,17 +79,18 @@ for var in "${VARS[@]}"; do
     fi
 done
 echo "$env_content" > "$ENV_FILE"
+
 echo -e "\033[32m::\033[0m已更新 .env 文件"
 
-# 开始安装
+log_step "开始安装和配置 hysteria2 ..."
 
 install_hysteria_if
 
 docker compose down || true
 docker compose up -d
 
-tlsdir="/etc/caddy/caddy/certificates/acme-v02.api.letsencrypt.org-directory/$domain"
+tlsdir="/etc/hysteria/certs"
 
-chmod -R 755 "/etc/caddy/caddy/certificates"
+chmod -R 755 $tlsdir
 
-configure_hysteria "$domain" "$password" 443 "$tlsdir" "$bw_up" "$bw_down"
+configure_hysteria "$domain" "$password" "$port" "$tlsdir" "$bw_up" "$bw_down" "$hop_range"

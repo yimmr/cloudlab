@@ -8,51 +8,14 @@ set -euo pipefail
 
 trap 'echo "发生错误。请检查上面的错误消息并重试。"; exit 1' ERR
 
-# 定义颜色
-GREEN='\033[0;32m'
-RED='\033[0;31m'
-NC='\033[0m'
-
-# 日志函数
-log_step() {
-    echo -e "${GREEN}⁘${NC} $1"
-}
-
-log_err() {
-    echo -e "${RED}[ERR]  $(date '+%Y-%m-%d %H:%M:%S') $1${NC}" >&2
-}
-
-die() {
-    log_err "$1"
-    exit 1
-}
-
-# 用户输入提示函数
-prompt() {
-    local message=$1
-    local default_value=$2
-    local user_input
-    read -e -p "$message" -i "$default_value" user_input
-    echo "${user_input:-$default_value}"
-}
-
-# 动态包管理器
-mypkm() {
-    if command -v dnf &> /dev/null; then
-        dnf "$@"
-    elif command -v apt &> /dev/null; then
-        apt "$@"
-    elif command -v yum &> /dev/null; then
-        yum "$@"
-    else
-        echo "没有可用包管理器"
-        exit 1
-    fi
-}
-
-# 检查 root 权限
 if [ "$EUID" -ne 0 ]; then
-    die "必须使用 root 权限运行此脚本"
+    echo "错误: 必须使用 root 权限运行此脚本" >&2
+    exit 1
+fi
+
+if [ -d "./$PROJECT_NAME" ]; then
+    echo -e "当前目录下存在同名目录 \033[0;31m$PROJECT_NAME\033[0m ！如果是此项目，请删除后重试或进入该目录下执行此脚本，反之更换到其他目录执行脚本"
+    exit 1
 fi
 
 echo -e "\033[36m(oﾟvﾟ)ノ\033[0m 欢迎使用一键安装脚本！"
@@ -60,6 +23,38 @@ echo -e "\033[36m(oﾟvﾟ)ノ\033[0m 根据下列每个提示\033[36m输入内�
 echo -e "\033[36m(oﾟvﾟ)ノ\033[0m 当提示出现[y/n]时，请\033[36m输入y或n来选择是或否\033[0m！"
 echo -e "\033[36m(oﾟvﾟ)ノ\033[0m 部分选项提供了默认值，确认无误后可直接按回车！"
 echo -e "\033[36m(oﾟvﾟ)ノ\033[0m 安装启动成功后，密码仅在容器内，请手动保存客户端连接信息！"
+
+echo -e "\033[0;32m⁘\033[0m 开始安装..."
+
+if ! command -v git &> /dev/null
+then
+    echo -e "\033[0;32m⁘\033[0m 正在安装Git"
+    mypkm install -y git-all
+fi
+
+# 确定脚本位置和项目目录，如果为空则可能是远程脚本
+BIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -z "$BIN_DIR" ]; then
+    PROJECT_DIR="$(pwd)" # 先临时设为当前目录
+else
+    PROJECT_DIR="$(dirname "$BIN_DIR")"
+fi
+
+# 如果不在项目目录下则克隆项目，重设目录变量
+if [[ "$(basename "$BIN_DIR")" != "bin" ]] && [[ ! -d "$PROJECT_DIR/.git" ]]; then
+    git clone "https://github.com/yimmr/$PROJECT_NAME.git" $PROJECT_NAME
+    cd "$PROJECT_NAME"
+    PROJECT_DIR=$(pwd)
+    BIN_DIR="$PROJECT_DIR/bin"
+fi
+
+source "$BIN_DIR/utils.sh"
+
+if ! command -v uuidgen &> /dev/null
+then
+    log_step "正在安装uuidgen"
+    apt update -y && apt install -y uuid-runtime
+fi
 
 if ! command -v docker &> /dev/null
 then
@@ -105,44 +100,11 @@ EOF
     fi
 fi
 
-if ! command -v git &> /dev/null
-then
-    log_step "正在安装Git"
-    mypkm install -y git-all
-fi
+log_step "基础环境就绪，正在部署项目 ..."
 
-if ! command -v uuidgen &> /dev/null
-then
-    log_step "正在安装uuidgen"
-    apt update -y && apt install -y uuid-runtime
-fi
-
-
-if [ -d "./$PROJECT_NAME" ]; then
-    echo -e "当前目录下存在同名目录 \033[0;31m$PROJECT_NAME\033[0m ！如果是此项目，请删除后重试或进入该目录下执行此脚本，反之更换到其他目录执行脚本"
-    exit 1
-fi
-
-# 确定脚本位置，如果空则可能是远程脚本
-DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-if [ -z "$DIR" ]; then
-    PROJECT_DIR="$(pwd)"
-else
-    PROJECT_DIR="$(dirname "$DIR")"
-fi
-
-log_step "开始部署项目..."
-
-# 如果不在项目目录下则创建项目
-if [[ "$(basename "$DIR")" != "bin" ]] && [[ ! -d "$PROJECT_DIR/.git" ]]; then
-    git clone "https://github.com/yimmr/$PROJECT_NAME.git" $PROJECT_NAME
-    cd "$PROJECT_NAME"
-    PROJECT_DIR=$(pwd)
-    DIR="$PROJECT_DIR/bin"
-fi
-
-cd $PROJECT_DIR
+cd "$PROJECT_DIR"
 
 chmod +x bin/*
 
+./bin/bbr
 ./bin/config
