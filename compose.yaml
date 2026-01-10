@@ -1,0 +1,29 @@
+name: org
+services:
+  caddy:
+      image: lucaslorentz/caddy-docker-proxy:ci-alpine
+      restart: unless-stopped
+      ports:
+        - "80:80"
+        - "443:443"
+      env_file: .env
+      volumes:
+        - ./caddy/data:/data
+        - ./caddy/config:/config
+        - ./site:/srv
+        - /var/run/docker.sock:/var/run/docker.sock
+      labels:
+        caddy: ${SITE_DOMAIN:-site.localhost}
+        caddy.root: "* /srv"
+        caddy.file_server: ""
+  db:
+    image: mariadb
+    restart: unless-stopped
+    volumes:
+      - ./dbdata:/var/lib/mysql
+    env_file: .env
+    ports:
+      - 3309:3306
+networks:
+  default:
+    name: ${NETWORK_ID}

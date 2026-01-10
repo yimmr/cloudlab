@@ -1,0 +1,50 @@
+#!/bin/bash
+
+export LANG=en_US.UTF-8
+
+set -euo pipefail
+
+domain=$(prompt "[必填]请输入客户端访问域名: " "")
+
+if [ -z "$domain" ]; then
+    echo -e "\033[0;31m未提供域名\033[0m "
+    exit 1
+fi
+
+cf_token=$(prompt "Cloudflare API令牌（或留空回车跳过申请证书）: " "")
+
+if [ -n "$cf_token" ]; then
+    ssl_domain=$(prompt "申请证书的域名（多域名用,分隔）: " "$domain")
+    ssl_domain=${ssl_domain:-$domain}
+fi
+
+if [ -n "$cf_token" ] && [ -n "$ssl_domain" ]; then
+    mail=$(prompt "订阅域名通知的邮箱地址（或留空回车拒绝通知）: " "")
+    if [ -n "$mail" ]; then
+        mail="-m $mail"
+    fi
+    echo -e "\033[32m::\033[0m 正在申请证书..."
+    rm -rf certbot
+    ./bin/cert auto -d $ssl_domain -t $cf_token $mail -r false
+    echo -e "\033[32m✓\033[0m 申请证书成功！"
+else
+    echo -e "\033[32m::\033[0m 已跳过申请证书"
+fi
+
+args="-h $domain"
+
+password=$(prompt "请输入客户端访问密码（或留空回车用随机密码）: " "")
+if [ -n "$password" ]; then
+    args="$args -P $(generate_password)"
+fi
+
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+
+source "$SCRIPT_DIR/utils.sh"
+source "$SCRIPT_DIR/hysteria.sh"
+
+install_hysteria_if
+
+docker compose up -d
+
+configure_hysteria $args

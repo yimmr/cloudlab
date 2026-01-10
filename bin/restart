@@ -1,0 +1,7 @@
+#!/bin/bash
+
+docker-compose restart
+
+if command -v hysteria &> /dev/null; then
+    systemctl restart hysteria-server.service
+fi

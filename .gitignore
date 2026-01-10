@@ -1,0 +1,7 @@
+caddy/*
+!caddy/.keep
+
+dbdata/*
+!dbdata/.keep
+
+.env
