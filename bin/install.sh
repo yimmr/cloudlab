@@ -2,16 +2,58 @@
 
 export LANG=en_US.UTF-8
 
+PROJECT_NAME='cloudlab'
+
 set -euo pipefail
 
 trap 'echo "发生错误。请检查上面的错误消息并重试。"; exit 1' ERR
 
-SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-PROJECT_NAME='cloudlab'
+# 定义颜色
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+NC='\033[0m'
 
-source "$SCRIPT_DIR/utils.sh"
+# 日志函数
+log_step() {
+    echo -e "${GREEN}⁘${NC} $1"
+}
 
-check_root
+log_err() {
+    echo -e "${RED}[ERR]  $(date '+%Y-%m-%d %H:%M:%S') $1${NC}" >&2
+}
+
+die() {
+    log_err "$1"
+    exit 1
+}
+
+# 用户输入提示函数
+prompt() {
+    local message=$1
+    local default_value=$2
+    local user_input
+    read -e -p "$message" -i "$default_value" user_input
+    echo "${user_input:-$default_value}"
+}
+
+# 动态包管理器
+mypkm() {
+    if command -v dnf &> /dev/null; then
+        dnf "$@"
+    elif command -v apt &> /dev/null; then
+        apt "$@"
+    elif command -v yum &> /dev/null; then
+        yum "$@"
+    else
+        echo "没有可用包管理器"
+        exit 1
+    fi
+}
+
+# 检查 root 权限
+if [ "$EUID" -ne 0 ]; then
+    die "必须使用 root 权限运行此脚本"
+fi
 
 echo -e "\033[36m(oﾟvﾟ)ノ\033[0m 欢迎使用一键安装脚本！"
 echo -e "\033[36m(oﾟvﾟ)ノ\033[0m 根据下列每个提示\033[36m输入内容并回车\033[0m或\033[36m直接按回车跳过非必填\033[0m即可完成安装！"
@@ -81,17 +123,22 @@ if [ -d "./$PROJECT_NAME" ]; then
     exit 1
 fi
 
+# 确定脚本位置，如果空则可能是远程脚本
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -z "$DIR" ]; then
+    PROJECT_DIR="$(pwd)"
+else
+    PROJECT_DIR="$(dirname "$DIR")"
+fi
+
 log_step "开始部署项目..."
 
-# 确定项目目录位置
-PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
-
 # 如果不在项目目录下则创建项目
-if [[ "$(basename "$SCRIPT_DIR")" != "bin" ]] && [[ ! -d "$PROJECT_DIR/.git" ]]; then
+if [[ "$(basename "$DIR")" != "bin" ]] && [[ ! -d "$PROJECT_DIR/.git" ]]; then
     git clone "https://github.com/yimmr/$PROJECT_NAME.git" $PROJECT_NAME
     cd "$PROJECT_NAME"
     PROJECT_DIR=$(pwd)
-    SCRIPT_DIR="$PROJECT_DIR/bin"
+    DIR="$PROJECT_DIR/bin"
 fi
 
 cd $PROJECT_DIR
