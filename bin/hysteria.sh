@@ -17,7 +17,7 @@ configure_hysteria() {
 
     # 写入配置
     cat > "$CONFIG_DIR/config.yaml" <<EOF
-listen: $port
+# listen: $port
 tls:
   cert: $TLS_DIR/$domain.crt
   key: $TLS_DIR/$domain.key
