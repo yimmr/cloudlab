@@ -77,4 +77,4 @@ install_hysteria_if
 
 docker compose up -d
 
-configure_hysteria "$domain" "$password" 443 "$PROJECT_DIR/caddy/data/caddy/certificates/local"
+configure_hysteria "$domain" "$password" 443 "$PROJECT_DIR/caddy/data/caddy/certificates/local/acme-v02.api.letsencrypt.org-directory/$domain"
