@@ -11,10 +11,10 @@ services:
         - ./caddy/data:/data
         - ./caddy/config:/config
         - ./site:/srv
-        - "/etc/hysteria/certs:/data/caddy/certificates/acme-v02.api.letsencrypt.org-directory/${HOSTNAME:-site.localhost}"
+        - "/etc/hysteria/certs:/data/caddy/certificates/acme-v02.api.letsencrypt.org-directory/${SITE_DOMAIN:-site.localhost}"
         - /var/run/docker.sock:/var/run/docker.sock
       labels:
-        caddy: ${HOSTNAME:-site.localhost}
+        caddy: ${SITE_DOMAIN:-site.localhost}
         caddy.root: "* /srv"
         caddy.file_server: ""
   db:
