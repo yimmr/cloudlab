@@ -97,6 +97,29 @@ log_step "公共容器重启完成"
 
 tlsdir="/etc/hysteria/certs"
 
+# 检查目录是否存在且为空，如果为空则等待
+if [ ! -d "$tlsdir" ] || [ -z "$(ls -A "$tlsdir" 2>/dev/null)" ]; then
+    log_step "等待 Docker 容器生成证书目录..."
+    max_wait=60  # 最大等待时间（秒）
+    wait_interval=2  # 检查间隔（秒）
+    elapsed=0
+
+    while ([ ! -d "$tlsdir" ] || [ -z "$(ls -A "$tlsdir" 2>/dev/null)" ]) && [ $elapsed -lt $max_wait ]; do
+        echo -e "\033[33m等待目录创建或文件生成: $tlsdir (已等待 ${elapsed}秒)...\033[0m"
+        sleep $wait_interval
+        elapsed=$((elapsed + wait_interval))
+    done
+
+    if [ ! -d "$tlsdir" ] || [ -z "$(ls -A "$tlsdir" 2>/dev/null)" ]; then
+        log_err "超时：目录 $tlsdir 未在 ${max_wait} 秒内创建或生成文件"
+        exit 1
+    fi
+
+    echo -e "\033[32m✓\033[0m 证书目录已就绪: $tlsdir"
+else
+    echo -e "\033[32m✓\033[0m 证书目录已存在且有内容: $tlsdir"
+fi
+
 chmod -R 755 $tlsdir
 
 configure_hysteria "$domain" "$password" "$port" "$tlsdir" "$bw_up" "$bw_down" "$hop_range"

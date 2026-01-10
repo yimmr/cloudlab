@@ -39,6 +39,11 @@ EOF
 
     multiple_ports $port $HOP_RANGE
 
+    local ports=""
+    if [ -n "$HOP_RANGE" ]; then
+        ports="ports: ${HOP_RANGE//:/-},"$'\n'
+    fi
+
     # 构建带宽配置选项
     local bandwidth_opts=""
     if [ -n "$bw_up" ]; then
@@ -56,11 +61,14 @@ EOF
     name: '$(domain_to_agent_name_with_icon $domain)',
     type: hysteria2,
     server: $domain,
-    port: "${port}${HOP_RANGE:+,${HOP_RANGE}}",
+    port: $port,
+    ${ports}
     password: $password,
-    sni: $domain,
     ${bandwidth_opts}
-    skip-cert-verify: false
+    sni: $domain,
+    skip-cert-verify: false,
+    alpn:
+      - h3
 }\033[0m" | tr -s '[:space:]' ' '
     echo ""
 }
