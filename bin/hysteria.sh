@@ -5,7 +5,7 @@ configure_hysteria() {
     local password=$2
     local port=${3:-443}
     local CONFIG_DIR='/etc/hysteria'
-    local TLS_DIR='/etc/hysteria'
+    local TLS_DIR=$4
 
     log_info "配置 Hysteria2..."
     mkdir -p "$CONFIG_DIR"
@@ -30,16 +30,16 @@ EOF
     systemctl restart hysteria-server.service
     log_info "Hysteria2 配置并重启完成"
 
-    echo "Clash节点:"
-cat <<EOF
-\033[0;32m- name: '$(domain_to_agent_name_with_icon $domain)'
-  type: hysteria2
-  server: $(curl -s ifconfig.me)
-  port: $port
-  password: $password
-  sni: $domain
-  skip-cert-verify: false\033[0m
-EOF
+    echo -e "\033[0;32mClash节点:\033[0m"
+    echo -e "\033[0;32m{
+    name: '$(domain_to_agent_name_with_icon $domain)',
+    type: hysteria2,
+    server: $domain,
+    port: $port,
+    password: $password,
+    sni: $domain,
+    skip-cert-verify: false
+}\033[0m"
 }
 
 
