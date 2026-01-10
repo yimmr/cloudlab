@@ -12,7 +12,8 @@ PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 source "$SCRIPT_DIR/utils.sh"
 source "$SCRIPT_DIR/hysteria.sh"
 
-domain=$(prompt "[必填]请输入客户端访问域名: " "")
+[[ -f "$PROJECT_DIR/.env" ]] && source "$PROJECT_DIR/.env" 2>/dev/null && [[ -n "$HOSTNAME" ]]
+domain=$(prompt "[必填]请输入客户端访问域名: " "$HOSTNAME")
 
 if [ -z "$domain" ]; then
     echo -e "\033[0;31m未提供域名\033[0m "
