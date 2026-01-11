@@ -21,7 +21,7 @@ setup_hysteria() {
     if [ -n "$FINAL_CLASH_OUTPUT" ]; then
         echo -e "\n========================================"
         echo -e "Clash节点配置:"
-        echo "\033[0;32m$FINAL_CLASH_OUTPUT\033[0m"
+        echo -e "\033[0;32m$FINAL_CLASH_OUTPUT\033[0m"
         echo -e "========================================\n"
     fi
 }

@@ -34,4 +34,4 @@ networks:
 
 ## 项目状况
 
-- docker 安装 `hy2` 不配置 `host` 时网络超级卡
+- docker 安装 `hy2` 时网络超级卡（未解决暂不考虑）
