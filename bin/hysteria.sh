@@ -133,7 +133,7 @@ remove_hysteria() {
 # 配置多端口转发
 multiple_ports() {
     local TARGET_PORT=$1
-    local HOP_RANGE=$2
+    local HOP_RANGE=$(echo "$2" | tr '-' ':')
 
     if [[ -z "$TARGET_PORT" ]] || [[ -z "$HOP_RANGE" ]]; then
         return
@@ -151,14 +151,7 @@ multiple_ports() {
         apt-get install -y iptables-persistent
     fi
 
-    # 开启 IP Forwarding (端口转发通常需要)
-    if [ "$(sysctl -n net.ipv4.ip_forward)" -eq 0 ]; then
-        log_step "开启 IPv4 转发..."
-        echo "net.ipv4.ip_forward = 1" >> /etc/sysctl.conf
-        sysctl -p >/dev/null 2>&1
-    fi
-
-    INTERFACE=$(ip route get 8.8.8.8 | awk '{print $5; exit}')
+    local INTERFACE=$(ip route get 8.8.8.8 2>/dev/null | awk '{print $5; exit}')
     if [[ -z "$INTERFACE" ]]; then
         log_err "无法检测到主网卡"
         return 1
@@ -182,9 +175,9 @@ multiple_ports() {
     # 持久化
     if command -v netfilter-persistent &> /dev/null; then
         netfilter-persistent save >/dev/null 2>&1
-        log_step "端口跳跃规则已持久化保存"
-    else
-        log_warn "未找到 netfilter-persistent，重启后规则可能丢失"
+    elif command -v iptables-save &> /dev/null; then
+        # 针对某些没有 netfilter-persistent 的系统做保底
+        iptables-save > /etc/iptables/rules.v4 2>/dev/null || iptables-save > /etc/iptables.rules
     fi
 }
 
