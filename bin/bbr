@@ -8,41 +8,45 @@
 # 权限检查
 [[ $EUID -ne 0 ]] && echo "❌ 错误: 请使用 root 权限运行！" && exit 1
 
+# 定义 sysctl 修改函数
+set_sysctl() {
+    local key=$1
+    local value=$2
+    if sysctl "$key" | grep -q "$value"; then
+        echo "[跳过] $key 已配置"
+    else
+        # 彻底清除旧配置避免冲突
+        sed -i "/^$key/d" /etc/sysctl.conf
+        echo "$key=$value" >> /etc/sysctl.conf
+        sysctl -w "$key=$value" > /dev/null 2>&1
+        echo "[设置] $key -> $value"
+    fi
+}
+
 echo "🚀正在写入 Hysteria 2 专属优化配置..."
 
 cat > /etc/sysctl.d/99-hy2-optimize.conf << EOF
-# 拥塞控制与队列
-net.core.default_qdisc = fq
-net.ipv4.tcp_congestion_control = bbr
-
 # 核心：UDP/TCP 缓冲区 (防止小内存 OOM)
 net.core.rmem_max = 33554432
 net.core.wmem_max = 33554432
-net.core.rmem_default = 25165824
-net.core.wmem_default = 25165824
-
-# UDP 缓冲区限制
-net.ipv4.udp_mem = 65536 131072 262144
-net.ipv4.udp_rmem_min = 65536
-net.ipv4.udp_wmem_min = 65536
-
-# TCP 缓冲区限制
-net.ipv4.tcp_mem = 65536 131072 262144
-net.ipv4.tcp_rmem_min = 65536
-net.ipv4.tcp_wmem_min = 65536
+net.ipv4.tcp_rmem = 4096 87380 33554432
+net.ipv4.tcp_wmem = 4096 65536 33554432
 
 # UDP/QUIC 专项优化
 net.core.netdev_max_backlog = 50000
 net.core.somaxconn = 65535
-net.ipv4.ip_no_pmtu_disc = 0
+
+# 拥塞控制与队列
+net.core.default_qdisc = fq
+net.ipv4.tcp_congestion_control = bbr
+
+# 缓解 SSH 卡顿或断流问题
 net.ipv4.tcp_mtu_probing = 1
-# net.ipv4.tcp_base_mss = 1024
+net.ipv4.tcp_slow_start_after_idle = 0
 
 # 降低延迟与连接优化
 net.ipv4.tcp_notsent_lowat = 16384
-net.ipv4.tcp_slow_start_after_idle = 0
 net.ipv4.tcp_tw_reuse = 1
-# net.ipv4.tcp_fastopen = 3
 EOF
 
 echo "🚀 正在设置系统文件句柄限制 (ULIMIT)..."
