@@ -56,9 +56,9 @@ if [ -z "$password" ]; then
     password=$(generate_password)
 fi
 
-read -p "是否通过 Docker 安装 Hysteria2？[y/N]: " -n 1 -r
-echo
-by_docker=${REPLY:-N}
+# read -p "是否通过 Docker 安装 Hysteria2？[y/N]: " -n 1 -r
+# echo
+# by_docker=${REPLY:-N}
 
 log_step "开始更新环境变量 (.env 文件) ..."
 ENV_FILE="$PROJECT_DIR/.env"
