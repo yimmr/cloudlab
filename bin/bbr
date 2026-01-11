@@ -5,52 +5,49 @@
 # Updated: 2026-01
 # =================================================================
 
-# 权限检查
+# 1. 权限检查
 [[ $EUID -ne 0 ]] && echo "❌ 错误: 请使用 root 权限运行！" && exit 1
 
-# 定义 sysctl 修改函数
-set_sysctl() {
-    local key=$1
-    local value=$2
-    if sysctl "$key" | grep -q "$value"; then
-        echo "[跳过] $key 已配置"
-    else
-        # 彻底清除旧配置避免冲突
-        sed -i "/^$key/d" /etc/sysctl.conf
-        echo "$key=$value" >> /etc/sysctl.conf
-        sysctl -w "$key=$value" > /dev/null 2>&1
-        echo "[设置] $key -> $value"
-    fi
-}
+echo "🚀 正在写入 Hysteria 2 专属优化配置..."
 
-echo "🚀正在写入 Hysteria 2 专属优化配置..."
-
+# 2. 写入 Sysctl 配置
+# 使用 cat 覆盖模式，确保配置干净
 cat > /etc/sysctl.d/99-hy2-optimize.conf << EOF
-# 核心：UDP/TCP 缓冲区 (防止小内存 OOM)
+# --- 核心：UDP/TCP 缓冲区 (防止小内存 OOM) ---
+# 允许应用程序申请的最大缓冲区 (32MB)
 net.core.rmem_max = 33554432
 net.core.wmem_max = 33554432
+# 配合核心缓冲区，稍微提升 TCP 的自动调整范围 (安全值)
 net.ipv4.tcp_rmem = 4096 87380 33554432
 net.ipv4.tcp_wmem = 4096 65536 33554432
 
-# UDP/QUIC 专项优化
+# --- UDP/QUIC 专项优化 ---
+# 增加网卡积压队列，防止 UDP 突发流量丢包
 net.core.netdev_max_backlog = 50000
+# 增加并发连接队列 (虽然 Hy2 用不到这么多，但防备高并发无害)
 net.core.somaxconn = 65535
 
-# 拥塞控制与队列
+# --- 系统基础与拥塞控制 ---
+# 开启 BBR
 net.core.default_qdisc = fq
 net.ipv4.tcp_congestion_control = bbr
+# 开启 IP 转发 (Docker/中转 必备)
+net.ipv4.ip_forward = 1
+# 配合 100万 ulimit，提升系统级文件打开上限
+fs.file-max = 2097152
 
-# 缓解 SSH 卡顿或断流问题
+# --- 缓解 SSH 卡顿或断流问题 ---
 net.ipv4.tcp_mtu_probing = 1
 net.ipv4.tcp_slow_start_after_idle = 0
 
-# 降低延迟与连接优化
+# --- 降低延迟与连接优化 (你选择保留的 TCP 优化) ---
 net.ipv4.tcp_notsent_lowat = 16384
 net.ipv4.tcp_tw_reuse = 1
 EOF
 
 echo "🚀 正在设置系统文件句柄限制 (ULIMIT)..."
-# 不去改 /etc/security/limits.conf 主文件，而是写入独立文件
+# 3. 设置用户级限制
+# 注意：这里设置了 100万，虽然有点大，但只要内存够用也没问题
 cat > /etc/security/limits.d/99-hy2-limits.conf << EOF
 * soft nofile 1048576
 * hard nofile 1048576
@@ -63,12 +60,15 @@ root hard nproc 512000
 EOF
 echo "✅ 已创建 /etc/security/limits.d/99-hy2-limits.conf"
 
-# 确保 systemd 服务也生效
+# 4. 确保 Systemd 服务限制生效
+# 使用 sed 修改 system.conf
 sed -i 's/^#DefaultLimitNOFILE=.*/DefaultLimitNOFILE=1048576/' /etc/systemd/system.conf
 sed -i 's/^DefaultLimitNOFILE=.*/DefaultLimitNOFILE=1048576/' /etc/systemd/system.conf
 
+# 5. 应用内核参数
 sysctl --system
 
 echo "=================================================="
-echo "✅ 优化完成！建议等其他任务完成后重启服务器"
+echo "✅ 优化完成！"
+echo "⚠️ 安装完成后，请务必重启服务器 (reboot) 以确保所有设置生效！"
 echo "=================================================="
