@@ -5,9 +5,15 @@
 setup_hysteria() {
     FINAL_CLASH_OUTPUT=""
 
+    if docker ps -a --format '{{.Names}}' | grep -q "^hysteria$"; then
+        log_step "删除旧容器..."
+        docker rm -f hysteria >/dev/null 2>&1
+    fi
+
     if [[ $8 =~ ^[Yy]$ ]]; then
         log_step "配置 Hysteria2 ..."
         configure_hysteria "$@"
+        systemctl disable hysteria-server.service
         install_hysteria_docker "$3"
     else
         install_hysteria_local
@@ -95,11 +101,6 @@ CLASH_EOF
 
 # Docker 安装/启动函数
 install_hysteria_docker() {
-    if docker ps -a --format '{{.Names}}' | grep -q "^hysteria$"; then
-        log_step "删除旧容器..."
-        docker rm -f hysteria >/dev/null 2>&1
-    fi
-
     log_step "正在启动 Hysteria2 容器..."
     docker run -d \
         --name hysteria \
