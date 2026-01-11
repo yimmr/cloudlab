@@ -4,6 +4,8 @@ read -p "⚠️ 确认要下线容器服务，清除所有数据和配置？(y/N
 
 docker compose down
 
+systemctl disable hysteria-server.service
+
 sudo rm -rf /etc/hysteria
 
 sudo rm -rf ./caddy
