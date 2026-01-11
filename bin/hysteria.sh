@@ -112,7 +112,6 @@ install_hysteria_docker() {
     docker run -d \
         --name hysteria \
         --restart unless-stopped \
-        # --net=host \
         -p "$port:443/udp" \
         -v "/etc/hysteria:/etc/hysteria" \
         tobyxdd/hysteria \
