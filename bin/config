@@ -104,7 +104,7 @@ if [ ! -d "$tlsdir" ] || [ -z "$(ls -A "$tlsdir" 2>/dev/null)" ]; then
     wait_interval=2  # 检查间隔（秒）
     elapsed=0
 
-    while ([ ! -d "$tlsdir" ] || [ -z "$(ls -A "$tlsdir" 2>/dev/null)" ]) && [ $elapsed -lt $max_wait ]; do
+    while [ ! -f "$tlsdir/$domain.crt" ] && [ $elapsed -lt $max_wait ]; do
         echo -e "\033[33m等待证书文件生成: $tlsdir (已等待 ${elapsed}秒)...\033[0m"
         sleep $wait_interval
         elapsed=$((elapsed + wait_interval))
