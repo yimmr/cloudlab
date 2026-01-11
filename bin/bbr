@@ -27,14 +27,14 @@ echo "🚀正在写入 Hysteria 2 专属优化配置..."
 
 cat > /etc/sysctl.d/99-hy2-optimize.conf << EOF
 # 核心：UDP/TCP 缓冲区 (调整为 32MB，防止小内存 OOM)
-net.core.rmem_max = 33554432
-net.core.wmem_max = 33554432
-net.core.rmem_default = 2097152
-net.core.wmem_default = 2097152
+net.core.rmem_max = 4194304
+net.core.wmem_max = 4194304
+# net.core.rmem_default = 2097152
+# net.core.wmem_default = 2097152
 
 # TCP 缓冲区限制
-net.ipv4.tcp_rmem = 4096 87380 33554432
-net.ipv4.tcp_wmem = 4096 65536 33554432
+net.ipv4.tcp_rmem = 4096 87380 4194304
+net.ipv4.tcp_wmem = 4096 65536 4194304
 
 # 拥塞控制与队列
 net.core.default_qdisc = fq
@@ -48,9 +48,9 @@ net.ipv4.tcp_mtu_probing = 1
 
 # 降低延迟与连接优化
 net.ipv4.tcp_notsent_lowat = 16384
-net.ipv4.tcp_fastopen = 3
 net.ipv4.tcp_slow_start_after_idle = 0
 net.ipv4.tcp_tw_reuse = 1
+# net.ipv4.tcp_fastopen = 3
 EOF
 
 echo "🚀 正在设置系统文件句柄限制 (ULIMIT)..."
