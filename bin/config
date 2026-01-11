@@ -112,10 +112,10 @@ if [ ! -d "$tlsdir" ] || [ -z "$(ls -A "$tlsdir" 2>/dev/null)" ]; then
 
     if [ ! -d "$tlsdir" ] || [ -z "$(ls -A "$tlsdir" 2>/dev/null)" ]; then
         log_err "超时：目录 $tlsdir 未在 ${max_wait} 秒内创建或生成证书"
-        exit 1
+        log_err "程序将继续执行，证书准备后手动重启即可"
+    else
+        echo -e "\033[32m✓\033[0m 证书目录已就绪: $tlsdir"
     fi
-
-    echo -e "\033[32m✓\033[0m 证书目录已就绪: $tlsdir"
 else
     echo -e "\033[32m✓\033[0m 证书目录已存在且有内容: $tlsdir"
 fi
