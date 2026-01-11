@@ -86,10 +86,6 @@ echo "$env_content" > "$ENV_FILE"
 
 echo -e "\033[32m::\033[0m已更新 .env 文件"
 
-log_step "开始安装和配置 hysteria2 ..."
-
-install_hysteria_if
-
 log_step "正在重启公共容器（Caddy代理、数据库等） ..."
 docker compose down || true
 docker compose up -d
@@ -105,13 +101,13 @@ if [ ! -d "$tlsdir" ] || [ -z "$(ls -A "$tlsdir" 2>/dev/null)" ]; then
     elapsed=0
 
     while ([ ! -d "$tlsdir" ] || [ -z "$(ls -A "$tlsdir" 2>/dev/null)" ]) && [ $elapsed -lt $max_wait ]; do
-        echo -e "\033[33m等待目录创建或文件生成: $tlsdir (已等待 ${elapsed}秒)...\033[0m"
+        echo -e "\033[33m等待证书文件生成: $tlsdir (已等待 ${elapsed}秒)...\033[0m"
         sleep $wait_interval
         elapsed=$((elapsed + wait_interval))
     done
 
     if [ ! -d "$tlsdir" ] || [ -z "$(ls -A "$tlsdir" 2>/dev/null)" ]; then
-        log_err "超时：目录 $tlsdir 未在 ${max_wait} 秒内创建或生成文件"
+        log_err "超时：目录 $tlsdir 未在 ${max_wait} 秒内创建或生成证书"
         exit 1
     fi
 
@@ -122,4 +118,6 @@ fi
 
 chmod -R 755 $tlsdir
 
-configure_hysteria "$domain" "$password" "$port" "$tlsdir" "$bw_up" "$bw_down" "$hop_range"
+log_step "开始安装和配置 hysteria2 ..."
+
+setup_hysteria "$domain" "$password" "$port" "$tlsdir" "$bw_up" "$bw_down" "$hop_range"
