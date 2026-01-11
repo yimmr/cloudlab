@@ -8,33 +8,18 @@
 # 权限检查
 [[ $EUID -ne 0 ]] && echo "❌ 错误: 请使用 root 权限运行！" && exit 1
 
-# 定义 sysctl 修改函数
-set_sysctl() {
-    local key=$1
-    local value=$2
-    if sysctl "$key" | grep -q "$value"; then
-        echo "[跳过] $key 已配置"
-    else
-        # 彻底清除旧配置避免冲突
-        sed -i "/^$key/d" /etc/sysctl.conf
-        echo "$key=$value" >> /etc/sysctl.conf
-        sysctl -w "$key=$value" > /dev/null 2>&1
-        echo "[设置] $key -> $value"
-    fi
-}
-
 echo "🚀正在写入 Hysteria 2 专属优化配置..."
 
 cat > /etc/sysctl.d/99-hy2-optimize.conf << EOF
 # 核心：UDP/TCP 缓冲区 (防止小内存 OOM)
-net.core.rmem_max = 33554432
-net.core.wmem_max = 33554432
+net.core.rmem_max = 16777216
+net.core.wmem_max = 16777216
 net.core.rmem_default = 16777216
 net.core.wmem_default = 16777216
 
 # TCP 缓冲区限制
-net.ipv4.tcp_rmem = 4096 87380 33554432
-net.ipv4.tcp_wmem = 4096 65536 33554432
+net.ipv4.tcp_rmem = 4096 87380 16777216
+net.ipv4.tcp_wmem = 4096 65536 16777216
 
 # 拥塞控制与队列
 net.core.default_qdisc = fq
