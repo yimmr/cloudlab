@@ -56,6 +56,10 @@ if [ -z "$password" ]; then
     password=$(generate_password)
 fi
 
+read -p "是否通过 Docker 安装 Hysteria2？[y/N]: " -n 1 -r
+echo
+by_docker=${REPLY:-N}
+
 log_step "开始更新环境变量 (.env 文件) ..."
 ENV_FILE="$PROJECT_DIR/.env"
 DEFAULT_ENV_NAME=".env.def"
@@ -120,4 +124,4 @@ chmod -R 755 $tlsdir
 
 log_step "开始安装和配置 hysteria2 ..."
 
-setup_hysteria "$domain" "$password" "$port" "$tlsdir" "$bw_up" "$bw_down" "$hop_range"
+setup_hysteria "$domain" "$password" "$port" "$tlsdir" "$bw_up" "$bw_down" "$hop_range" "$by_docker"

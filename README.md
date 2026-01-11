@@ -31,3 +31,7 @@ networks:
     name: ${NETWORK_ID:-web_gateway}
     external: true
 ```
+
+## 项目状况
+
+- docker 安装 `hy2` 不配置 `host` 时网络超级卡

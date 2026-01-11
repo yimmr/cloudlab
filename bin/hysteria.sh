@@ -1,16 +1,11 @@
 #!/bin/bash
 
 # 主入口函数
-# 参数: domain password port tlsdir bw_up bw_down hop_range
+# 参数: domain password port tlsdir bw_up bw_down hop_range by_docker
 setup_hysteria() {
     FINAL_CLASH_OUTPUT=""
 
-    # 询问安装方式
-    read -p "是否通过 Docker 安装 Hysteria2？[y/N]: " -n 1 -r
-    echo
-    REPLY=${REPLY:-N}
-
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
+    if [[ $8 =~ ^[Yy]$ ]]; then
         log_step "配置 Hysteria2 ..."
         configure_hysteria "$@"
         install_hysteria_docker "$3"
@@ -26,7 +21,7 @@ setup_hysteria() {
     if [ -n "$FINAL_CLASH_OUTPUT" ]; then
         echo -e "\n========================================"
         echo -e "Clash节点配置:"
-        echo "$FINAL_CLASH_OUTPUT"
+        echo "\033[0;32m$FINAL_CLASH_OUTPUT\033[0m"
         echo -e "========================================\n"
     fi
 }
@@ -86,7 +81,7 @@ EOF
     local node_name=$(domain_to_agent_name_with_icon "$domain")
 
     FINAL_CLASH_OUTPUT=$(cat <<CLASH_EOF
-\033[0;32m- name: ${node_name}
+- name: ${node_name}
   type: hysteria2
   server: ${domain}
   port: ${port}
@@ -94,15 +89,12 @@ ${ports_line}
   password: ${password}
 ${bandwidth_opts}  sni: ${domain}
   skip-cert-verify: false
-  fingerprint: chrome\033[0m
 CLASH_EOF
 )
 }
 
 # Docker 安装/启动函数
 install_hysteria_docker() {
-    local port=${1:-443}
-
     if docker ps -a --format '{{.Names}}' | grep -q "^hysteria$"; then
         log_step "删除旧容器..."
         docker rm -f hysteria >/dev/null 2>&1
@@ -112,7 +104,7 @@ install_hysteria_docker() {
     docker run -d \
         --name hysteria \
         --restart unless-stopped \
-        -p "$port:443/udp" \
+        --net=host \
         -v "/etc/hysteria:/etc/hysteria" \
         tobyxdd/hysteria \
         server -c /etc/hysteria/config.yaml || die "Hysteria2 容器启动失败"
