@@ -29,8 +29,8 @@ cat > /etc/sysctl.d/99-hy2-optimize.conf << EOF
 # 核心：UDP/TCP 缓冲区 (调整为 32MB，防止小内存 OOM)
 net.core.rmem_max = 26214400
 net.core.wmem_max = 26214400
-# net.core.rmem_default = 2097152
-# net.core.wmem_default = 2097152
+# net.core.rmem_default = 207152
+# net.core.wmem_default = 207152
 
 # TCP 缓冲区限制
 net.ipv4.tcp_rmem = 4096 87380 26214400
