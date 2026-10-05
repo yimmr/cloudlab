@@ -31,10 +31,16 @@ log_ok()   { echo -e "${C_GREEN}[ OK ]${C_NC} $1"; }
 die() { log_err "$1"; exit 1; }
 
 # 带默认值的交互式提问
+# 交互环境下 read -i 已经将默认值填入行缓冲，若用户特意按退格键清空，则尊重清空结果
 prompt() {
     local message=$1 default_value=${2:-} user_input
-    read -e -r -p "$message" -i "$default_value" user_input
-    echo "${user_input:-$default_value}"
+    if [ -t 0 ]; then
+        read -e -r -p "$message" -i "$default_value" user_input
+        echo "$user_input"
+    else
+        read -r user_input 2>/dev/null || true
+        echo "${user_input:-$default_value}"
+    fi
 }
 
 # 是/否确认

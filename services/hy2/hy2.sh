@@ -422,8 +422,23 @@ action_config() {
 
     echo ""
     local password
-    password=$(prompt "客户端访问密码 (留空随机生成): " "$(hy2_env_get HY2_PASSWORD "")")
-    [ -z "$password" ] && password=$(generate_password)
+    local current_password
+    current_password=$(hy2_env_get HY2_PASSWORD "")
+
+    if [ -n "$current_password" ]; then
+        if confirm "检测到已有访问密码，是否保持现有密码？(Y/n): " "y"; then
+            password="$current_password"
+            log_info "已保留当前密码"
+        else
+            password=$(prompt "输入新密码 (直接回车随机生成): " "")
+            [ -z "$password" ] && password=$(generate_password)
+            log_ok "已生成新密码: $password"
+        fi
+    else
+        password=$(prompt "客户端访问密码 (直接回车随机生成): " "")
+        [ -z "$password" ] && password=$(generate_password)
+        log_ok "已生成访问密码: $password"
+    fi
 
     local port
     port=$(prompt "监听端口 (443 推荐): " "$(hy2_env_get HY2_PORT 443)")
