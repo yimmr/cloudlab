@@ -234,14 +234,14 @@ domain_to_agent_name_with_icon() {
     token=$(printf '%s' "$domain" | awk -F'[._-]' '{print tolower($1)}')
 
     if [ -n "${NodeIconMap[$token]:-}" ]; then
-        icon="${NodeIconMap[$token]} "
+        icon="${NodeIconMap[$token]}"
     else
         local prefix2="${name:0:2}"
         prefix2="${prefix2,,}"
         if [ -n "${NodeIconMap[$prefix2]:-}" ]; then
             local remainder="${name:2}"
             if [ -z "$remainder" ] || [[ "$remainder" =~ ^[0-9] ]]; then
-                icon="${NodeIconMap[$prefix2]} "
+                icon="${NodeIconMap[$prefix2]}"
             fi
         fi
     fi
