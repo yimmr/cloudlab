@@ -233,15 +233,15 @@ EOF
 # --- iptables 端口跳跃 --------------------------------------------------------
 hop_comment() { echo "hysteria2-$1"; }
 
-# 删除带 hysteria2- 注释的旧规则（IPv4 + IPv6）
+# 删除所有带 hysteria2- 注释的旧规则（IPv4 + IPv6），杜绝端口更换后残留
 # 采用行号倒序删除：避免 -S 带引号的参数经 shell 拆词后失效；匹配规则包含 /* hysteria2-xx */ 注释
 remove_hop_rules() {
-    local comment=$1 cmd=$2
+    local cmd=$1
     has_cmd "$cmd" || return 0
 
     local nums n
     nums=$("$cmd" -t nat -L PREROUTING -n --line-numbers 2>/dev/null \
-           | grep -F "$comment" \
+           | grep -E "hysteria2-" \
            | awk '{print $1}' | sort -rn)
 
     [ -z "$nums" ] && return 0
@@ -270,9 +270,9 @@ apply_port_hopping() {
     local comment
     comment=$(hop_comment "$port")
 
-    # 无论是否设置跳跃范围，均先清理旧规则，杜绝残留
-    remove_hop_rules "$comment" iptables
-    remove_hop_rules "$comment" ip6tables
+    # 无论是否设置跳跃范围，均先清理所有旧规则，杜绝端口变更导致的历史残留
+    remove_hop_rules iptables
+    remove_hop_rules ip6tables
 
     if [ -z "$hop_range" ]; then
         log_info "未设置跳跃范围，已清除旧端口跳跃规则"
@@ -285,25 +285,26 @@ apply_port_hopping() {
 
     log_step "配置端口跳跃 ($iptables_range -> $port UDP) ..."
 
+    # 关键防护：增加 -m conntrack --ctstate NEW 保证仅重定向外部新建连接，
+    # 防止本机主动对外发起 UDP 连接（如 DNS/NTP）时的外部回复包被误拦截
     iptables -t nat -A PREROUTING -p udp --dport "$iptables_range" \
+        -m conntrack --ctstate NEW \
         -m comment --comment "$comment" -j REDIRECT --to-ports "$port" \
         || die "iptables 规则添加失败"
 
     if has_cmd ip6tables; then
         ip6tables -t nat -A PREROUTING -p udp --dport "$iptables_range" \
+            -m conntrack --ctstate NEW \
             -m comment --comment "$comment" -j REDIRECT --to-ports "$port" 2>/dev/null || true
     fi
 
     persist_iptables
-    log_ok "端口跳跃规则已生效"
+    log_ok "端口跳跃规则已生效 (带 conntrack NEW 状态过滤)"
 }
 
 clear_port_hopping() {
-    local port=${1:-443}
-    local comment
-    comment=$(hop_comment "$port")
-    remove_hop_rules "$comment" iptables
-    remove_hop_rules "$comment" ip6tables
+    remove_hop_rules iptables
+    remove_hop_rules ip6tables
     persist_iptables
     log_ok "端口跳跃规则已清理"
 }
@@ -418,7 +419,8 @@ action_config() {
     local new_domain
     new_domain=$(prompt "[必填]服务域名 (需已解析到本机): " "$domain")
     [ -z "$new_domain" ] && die "域名不能为空"
-    domain=$new_domain
+    # 域名规范化：去除首尾空格并转换为全小写，避免证书检索与配置大小写不匹配
+    domain=$(printf '%s' "$new_domain" | tr -d ' ' | tr '[:upper:]' '[:lower:]')
 
     echo ""
     local password
@@ -549,6 +551,15 @@ action_log() { journalctl --no-pager -f -u "$HY2_SERVICE"; }
 
 action_debug() {
     check_root
+    if service_is_active "$HY2_SERVICE"; then
+        log_warn "检测到后台 $HY2_SERVICE 服务正在运行，端口可能被占用。"
+        if confirm "是否临时停止后台服务以便排查？(y/N)" "y"; then
+            systemctl stop "$HY2_SERVICE"
+            log_info "后台服务已暂停，排查结束后可执行 cloud hy2 start 恢复"
+        else
+            log_warn "继续在前台运行，若端口冲突可能报错退出..."
+        fi
+    fi
     log_warn "debug 模式前台运行，按 Ctrl+C 退出"
     hysteria server --config "$HY2_CONFIG_FILE" --log-level debug
 }

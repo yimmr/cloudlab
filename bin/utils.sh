@@ -43,12 +43,12 @@ prompt() {
     fi
 }
 
-# 是/否确认
+# 是/否确认（支持 y/yes/Y/YES）
 confirm() {
     local message=$1 default=${2:-y} user_input
     read -e -r -p "$message" -i "$default" user_input
     user_input=${user_input:-$default}
-    [[ "$user_input" =~ ^[Yy]$ ]]
+    [[ "$user_input" =~ ^[Yy]([Ee][Ss])?$ ]]
 }
 
 print_rule() {
@@ -74,8 +74,8 @@ pkm() {
     if   has_cmd apt-get; then apt-get "$@"
     elif has_cmd dnf;     then dnf "$@"
     elif has_cmd yum;     then yum "$@"
-    elif has_cmd apk;     then apk add "$@"
-    elif has_cmd pacman;  then pacman -Sy --noconfirm "$@"
+    elif has_cmd apk;     then apk "$@"
+    elif has_cmd pacman;  then pacman "$@"
     else die "没有找到可用的包管理器 (apt/dnf/yum/apk/pacman)"
     fi
 }
@@ -98,7 +98,7 @@ pkg_install() {
         debian|ubuntu) pkm install -y "${pkgs[@]}" ;;
         centos|rhel|rocky|almalinux|fedora) pkm install -y "${pkgs[@]}" ;;
         alpine) pkm add "${pkgs[@]}" ;;
-        arch) pkm -S --needed --noconfirm "${pkgs[@]}" ;;
+        arch) pkm -Sy --needed --noconfirm "${pkgs[@]}" ;;
         *)   pkm install -y "${pkgs[@]}" ;;
     esac
 }
@@ -109,11 +109,15 @@ get_default_interface() {
         || ip route get 8.8.8.8 2>/dev/null | awk '{print $5; exit}'
 }
 
-# 端口是否被监听
+# 端口是否被监听（精准匹配端口，避免误判 IP 末尾数字）
 port_in_use() {
     local port=$1
-    if has_cmd ss; then ss -tuln 2>/dev/null | grep -qE "[:.]${port}\b"
-    else netstat -tuln 2>/dev/null | grep -qE "[:.]${port}\b"; fi
+    if has_cmd ss; then
+        ss -tulnH "( sport = :${port} )" 2>/dev/null | grep -q . \
+            || ss -tuln 2>/dev/null | grep -qE "[:.]${port}[[:space:]]"
+    else
+        netstat -tuln 2>/dev/null | grep -qE "[:.]${port}[[:space:]]"
+    fi
 }
 
 # ------------------------------------------------------------------------------
@@ -127,12 +131,16 @@ env_get() {
     line=$(grep -E "^[[:space:]]*${key}=" "$file" 2>/dev/null | tail -n 1) || true
     if [[ -z "$line" ]]; then echo "$default"; return; fi
     value=${line#*=}
-    # 去除成对引号与行尾注释
+    # 去除首尾空白
     value=$(printf '%s' "$value" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+    # 处理成对引号或剥离行尾注释
     if [[ "$value" == \"*\" && "$value" == *\" ]]; then
         value=${value#\"}; value=${value%\"}
     elif [[ "$value" == \'*\' && "$value" == *\' ]]; then
         value=${value#\'}; value=${value%\'}
+    else
+        # 未被引号完全包裹的值，剥离 # 后的行尾注释
+        value=$(printf '%s' "$value" | sed -e 's/[[:space:]]*#.*$//')
     fi
     printf '%s' "$value"
 }

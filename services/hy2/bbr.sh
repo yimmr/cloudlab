@@ -46,8 +46,8 @@ net.ipv4.tcp_wmem = 4096 65536 33554432
 # ---------- 队列与高并发 (应对 Clash TUN 模式并发连接) ----------
 net.core.netdev_max_backlog = 50000
 net.core.somaxconn = 65535
-# 预留 10240 以下知名服务端口，避免出向连接随机占用数据库等监听端口
-net.ipv4.ip_local_port_range = 10240 65535
+# 预留 50000 以下端口（避开 20000~50000 端口跳跃范围与常用服务监听端口），避免出向连接与跳跃规则冲突
+net.ipv4.ip_local_port_range = 50001 65535
 
 # ---------- 连接跟踪表防打爆 (针对 TUN 模式高频 UDP & 端口跳跃) ----------
 net.netfilter.nf_conntrack_max = $CONNTRACK_MAX

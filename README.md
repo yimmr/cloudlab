@@ -239,7 +239,7 @@ Set `external: true` to use an existing network
 ## 注意事项
 
 1. 域名需已解析到本机公网 IP，且云安全组放行 TCP 80/443、UDP 443 与跳跃端口范围。
-2. 数据库默认开启 `MARIADB_ALLOW_EMPTY_PASSWORD=yes`，支持使用空密码快速初始化与连接；如需高安全隔离，可在 `.env` 中指定强密码。
+2. 数据库默认开启 `MYSQL_ALLOW_EMPTY_PASSWORD=yes`，支持使用空密码快速初始化与连接；如需高安全隔离，可在 `.env` 中指定强密码。
 3. hy2 客户端带宽（`up` / `down`）不要填满，实际宽带即可，脚本按 `×0.9` 写入，
    避免触发运营商 QoS 处罚。
 4. 执行过 `cloud hy2 bbr` 后建议重启服务器，使 ulimit 与 systemd 限制全局生效。

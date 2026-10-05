@@ -22,9 +22,11 @@ services:
       - ./sites/default:/srv
       - /var/run/docker.sock:/var/run/docker.sock:ro
     labels:
-      caddy: ${SITE_DOMAIN:-site.localhost}
-      caddy.root: "* /srv"
-      caddy.file_server: ""
+      # 全局关闭 HTTP/3 协议支持并禁用 Alt-Svc 头部，防止浏览器向 UDP 443 发起请求劫持 Hysteria 2
+      caddy_0.servers.protocols: "h1 h2"
+      caddy_1: ${SITE_DOMAIN:-site.localhost}
+      caddy_1.root: "* /srv"
+      caddy_1.file_server: ""
     networks:
       - gateway_net
 

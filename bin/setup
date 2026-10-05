@@ -135,8 +135,9 @@ setup_infra() {
     fi
 
     echo ""
-    local domain
-    domain=$(prompt "[必填]站点/协议域名 (需已解析到本机公网 IP): " "$(env_get "$ENV_FILE" SITE_DOMAIN "")")
+    local raw_domain domain
+    raw_domain=$(prompt "[必填]站点/协议域名 (需已解析到本机公网 IP): " "$(env_get "$ENV_FILE" SITE_DOMAIN "")")
+    domain=$(printf '%s' "$raw_domain" | tr -d ' ' | tr '[:upper:]' '[:lower:]')
     [ -z "$domain" ] && die "域名不能为空"
 
     # DNS 连通性预检警告
@@ -152,21 +153,21 @@ setup_infra() {
     net=$(prompt "Docker 网关网络名: " "$(env_get "$ENV_FILE" NETWORK_ID web_gateway)")
 
     local dbpass
-    dbpass=$(env_get "$ENV_FILE" MARIADB_ROOT_PASSWORD "")
+    dbpass=$(env_get "$ENV_FILE" MYSQL_ROOT_PASSWORD "")
     if [ -z "$dbpass" ]; then
         echo ""
         log_info "数据库 root 密码当前为空。"
         if confirm "是否生成随机强密码？(y/N, 默认使用空密码)" "n"; then
             dbpass=$(generate_password)
-            env_set "$ENV_FILE" MARIADB_ROOT_PASSWORD "$dbpass"
+            env_set "$ENV_FILE" MYSQL_ROOT_PASSWORD "$dbpass"
             env_set "$ENV_FILE" WORDPRESS_DB_PASSWORD "$dbpass"
-            env_set "$ENV_FILE" MARIADB_ALLOW_EMPTY_PASSWORD "no"
+            env_set "$ENV_FILE" MYSQL_ALLOW_EMPTY_PASSWORD "no"
             log_ok "已生成随机数据库密码"
         else
-            env_set "$ENV_FILE" MARIADB_ROOT_PASSWORD ""
+            env_set "$ENV_FILE" MYSQL_ROOT_PASSWORD ""
             env_set "$ENV_FILE" WORDPRESS_DB_PASSWORD ""
-            env_set "$ENV_FILE" MARIADB_ALLOW_EMPTY_PASSWORD "yes"
-            log_ok "已配置为允许空密码运行 (MARIADB_ALLOW_EMPTY_PASSWORD=yes)"
+            env_set "$ENV_FILE" MYSQL_ALLOW_EMPTY_PASSWORD "yes"
+            log_ok "已配置为允许空密码运行 (MYSQL_ALLOW_EMPTY_PASSWORD=yes)"
         fi
     fi
 
