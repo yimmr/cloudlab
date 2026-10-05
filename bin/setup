@@ -1,0 +1,226 @@
+#!/bin/bash
+
+# ==============================================================================
+# cloud 初始化装配器
+#   依赖检查 -> Docker 安装 -> 全局命令挂载 -> 底座配置 -> 可选安装 hy2
+#
+#   用法: ./bin/setup
+# ==============================================================================
+
+set -euo pipefail
+export LANG=en_US.UTF-8
+
+# --- 定位项目 --------------------------------------------------------------
+SOURCE="${BASH_SOURCE[0]}"
+while [ -h "$SOURCE" ]; do
+    DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+    SOURCE="$(readlink "$SOURCE")"
+    [[ $SOURCE != /* ]] && SOURCE="$DIR/$SOURCE"
+done
+BIN_DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+PROJECT_DIR="$(cd -P "$BIN_DIR/.." && pwd)"
+cd "$PROJECT_DIR"
+
+source "$BIN_DIR/utils.sh"
+
+ENV_FILE="$PROJECT_DIR/.env"
+ENV_TEMPLATE="$PROJECT_DIR/.env.example"
+HY2_SH="$PROJECT_DIR/services/hy2/hy2.sh"
+
+# ==============================================================================
+# 阶段 0：环境与权限检查（防止污染本地非服务器环境）
+# ==============================================================================
+[ "$(id -u)" -ne 0 ] && die "请使用 root 权限运行: sudo ./bin/setup"
+
+# WSL / 本地开发机防呆检测
+if grep -qi microsoft /proc/version 2>/dev/null; then
+    echo ""
+    log_warn "⚠️  检测到当前处于 WSL (Windows Subsystem for Linux) 本地开发环境！"
+    log_warn "本项目设计为仅在独立 Linux 生产服务器 (VPS) 上部署运行。"
+    echo ""
+    if ! confirm "确认要在本地 WSL 环境强行执行初始化吗？(y/N)" "n"; then
+        echo "已安全取消，未对本地环境做任何变动。"
+        exit 0
+    fi
+fi
+
+_banner "cloud 初始化向导"
+cat <<EOF
+  将自动完成：依赖检查 → Docker 安装 → 全局命令挂载 → 底座配置 → Hysteria 2 可选安装
+  项目目录: $PROJECT_DIR
+EOF
+
+# ==============================================================================
+# 阶段 1：基础依赖与端口预检
+# ==============================================================================
+ensure_base_deps() {
+    log_step "检查基础依赖 ..."
+    local missing=()
+    has_cmd git      || missing+=(git)
+    has_cmd curl     || missing+=(curl)
+    has_cmd iptables || missing+=(iptables)
+
+    if ! has_cmd uuidgen; then
+        case "$(os_id)" in
+            debian|ubuntu) missing+=(uuid-runtime) ;;
+            *)             missing+=(util-linux) ;;
+        esac
+    fi
+
+    if [ ${#missing[@]} -gt 0 ]; then
+        log_info "安装缺失依赖: ${missing[*]}"
+        if has_cmd apt-get; then apt-get update -y >/dev/null 2>&1 || true; fi
+        pkg_install "${missing[@]}" || log_warn "部分依赖安装失败，若后续报错请手动处理"
+    fi
+    log_ok "基础依赖就绪"
+
+    # 检查常见端口冲突
+    local conflict=0
+    if port_in_use 80; then
+        log_warn "检测到 TCP 端口 80 已被占用，可能导致 Caddy 启动失败！"
+        conflict=1
+    fi
+    if port_in_use 443; then
+        log_warn "检测到 443 端口已被占用，请排查是否已安装其他 Web 代理！"
+        conflict=1
+    fi
+    if [ "$conflict" -eq 1 ]; then
+        if ! confirm "检测到端口可能冲突，是否继续强制安装？(y/N)" "n"; then
+            die "已取消：请先停止占用 80/443 端口的服务后重试"
+        fi
+    fi
+}
+
+# ==============================================================================
+# 阶段 2：Docker
+# ==============================================================================
+ensure_docker() {
+    if has_cmd docker && docker compose version >/dev/null 2>&1; then
+        log_ok "Docker 已就绪 ($(docker --version))"
+    else
+        log_step "安装 Docker ..."
+        curl -fsSL https://get.docker.com | sh >/dev/null 2>&1 \
+            || die "Docker 安装失败，请手动安装后重试"
+        systemctl enable --now docker >/dev/null 2>&1 || true
+        has_cmd docker || die "Docker 安装后仍不可用"
+        log_ok "Docker 安装完成: $(docker --version)"
+    fi
+}
+
+# ==============================================================================
+# 阶段 3：全局命令挂载
+# ==============================================================================
+register_global_command() {
+    log_step "挂载全局命令 ..."
+    # 优先使用软链（保留自更新能力），脚本会自动解析软链定位项目根目录
+    ln -sf "$BIN_DIR/cloud" /usr/local/bin/cloud
+    ln -sf "$BIN_DIR/cloud" /usr/local/bin/cl
+    log_ok "已挂载: cloud / cl （任意目录可用）"
+}
+
+# ==============================================================================
+# 阶段 4：底座配置
+# ==============================================================================
+setup_infra() {
+    log_step "配置基础设施 ..."
+
+    if [ ! -f "$ENV_FILE" ]; then
+        if [ -f "$ENV_TEMPLATE" ]; then
+            cp "$ENV_TEMPLATE" "$ENV_FILE"
+            log_info "已从 .env.example 创建 .env"
+        else
+            : > "$ENV_FILE"
+            log_warn "未找到 .env.example，将创建空白 .env"
+        fi
+    fi
+
+    echo ""
+    local domain
+    domain=$(prompt "[必填]站点/协议域名 (需已解析到本机公网 IP): " "$(env_get "$ENV_FILE" SITE_DOMAIN "")")
+    [ -z "$domain" ] && die "域名不能为空"
+
+    # DNS 连通性预检警告
+    if has_cmd getent && ! getent hosts "$domain" >/dev/null 2>&1; then
+        log_warn "域名 $domain 当前可能尚未解析到任何 IP 地址！"
+        log_warn "如果未解析成功启动 Caddy，申请证书可能会失败并触发 Let's Encrypt 限流。"
+        if ! confirm "确认继续吗？(y/N)" "y"; then
+            die "已中止：请在 DNS 解析生效后再运行 setup"
+        fi
+    fi
+
+    local net
+    net=$(prompt "Docker 网关网络名: " "$(env_get "$ENV_FILE" NETWORK_ID web_gateway)")
+
+    local dbpass
+    dbpass=$(env_get "$ENV_FILE" MARIADB_ROOT_PASSWORD "")
+    if [ -z "$dbpass" ]; then
+        echo ""
+        log_info "数据库 root 密码当前为空。"
+        if confirm "是否生成随机强密码？(y/N, 默认使用空密码)" "n"; then
+            dbpass=$(generate_password)
+            env_set "$ENV_FILE" MARIADB_ROOT_PASSWORD "$dbpass"
+            env_set "$ENV_FILE" WORDPRESS_DB_PASSWORD "$dbpass"
+            env_set "$ENV_FILE" MARIADB_ALLOW_EMPTY_PASSWORD "no"
+            log_ok "已生成随机数据库密码"
+        else
+            env_set "$ENV_FILE" MARIADB_ROOT_PASSWORD ""
+            env_set "$ENV_FILE" WORDPRESS_DB_PASSWORD ""
+            env_set "$ENV_FILE" MARIADB_ALLOW_EMPTY_PASSWORD "yes"
+            log_ok "已配置为允许空密码运行 (MARIADB_ALLOW_EMPTY_PASSWORD=yes)"
+        fi
+    fi
+
+    env_set "$ENV_FILE" SITE_DOMAIN "$domain"
+    env_set "$ENV_FILE" NETWORK_ID "$net"
+    # 同步域名至 hy2 专属环境变量，避免二次配置脱节
+    env_set "$PROJECT_DIR/services/hy2/hy2.env" HY2_DOMAIN "$domain"
+
+    echo ""
+    log_step "启动底座容器 (Caddy 申请证书 / MariaDB) ..."
+    docker compose -f "$PROJECT_DIR/compose.yaml" up -d
+    log_ok "底座容器已启动"
+}
+
+# ==============================================================================
+# 阶段 5：Hysteria 2（可选）
+# ==============================================================================
+setup_hy2() {
+    echo ""
+    print_rule
+    if ! confirm "是否同时安装 Hysteria 2 节点服务？(y/N)" "n"; then
+        log_info "已跳过。后续可随时执行: cloud hy2 install"
+        return
+    fi
+    print_rule
+
+    log_step "应用内核 / 网络优化 (BBR) ..."
+    bash "$PROJECT_DIR/services/hy2/bbr.sh" || log_warn "内核优化部分失败，可稍后执行 cloud hy2 bbr 重试"
+
+    echo ""
+    bash "$HY2_SH" install
+}
+
+# ==============================================================================
+# 主流程
+# ==============================================================================
+ensure_base_deps
+ensure_docker
+register_global_command
+setup_infra
+setup_hy2
+
+print_rule
+cat <<EOF
+${C_GREEN}${C_BOLD}cloud 初始化完成${C_NC}
+
+  日常命令（任意目录可用，亦支持简写 cl）:
+    cloud status           查看整体状态
+    cloud logs caddy       查看网关日志
+    cloud hy2 export       导出客户端节点配置
+    cloud hy2 log          查看 hy2 实时日志
+    cloud update           更新容器与 hy2
+    cloud clean            彻底清理
+
+  提示: 如已执行 BBR 优化，建议重启服务器使 ulimit 全局生效。
+EOF
+print_rule

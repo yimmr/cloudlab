@@ -1,28 +1,49 @@
-name: org
+name: cloud
+
+# ==============================================================================
+# cloud 基础设施底座：反向代理网关 + 数据库
+#   本文件不包含任何扩展服务（如 hy2）的痕迹，扩展服务请见 services/
+# ==============================================================================
+
 services:
   caddy:
-      image: lucaslorentz/caddy-docker-proxy:ci-alpine
-      restart: unless-stopped
-      ports:
-        - "80:80"
-        - "443:443/tcp"
-      env_file: .env
-      volumes:
-        - ./caddy/data:/data
-        - ./caddy/config:/config
-        - ./site:/srv
-        - "/etc/hysteria/certs:/data/caddy/certificates/acme-v02.api.letsencrypt.org-directory/${SITE_DOMAIN:-site.localhost}"
-        - /var/run/docker.sock:/var/run/docker.sock
-      labels:
-        caddy: ${SITE_DOMAIN:-site.localhost}
-        caddy.root: "* /srv"
-        caddy.file_server: ""
-  db:
-    image: mariadb
+    image: lucaslorentz/caddy-docker-proxy:alpine
     restart: unless-stopped
+    ports:
+      # 443 仅绑定 TCP，UDP 443 留给宿主机的 Hysteria 2（QUIC）使用
+      - "80:80"
+      - "443:443/tcp"
+    # 注意: 网关不需要 env_file，Compose 会自动读取项目目录下的 .env 做变量插值
+    environment:
+      CADDY_INGRESS_NETWORKS: ${NETWORK_ID:-web_gateway}
     volumes:
-      - ./dbdata:/var/lib/mysql
+      - ./infra/caddy/data:/data
+      - ./infra/caddy/config:/config
+      - ./sites/default:/srv
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    labels:
+      caddy: ${SITE_DOMAIN:-site.localhost}
+      caddy.root: "* /srv"
+      caddy.file_server: ""
+    networks:
+      - gateway_net
+
+  db:
+    image: mariadb:lts
+    restart: unless-stopped
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci --innodb-buffer-pool-size=128M
+    volumes:
+      - ./infra/dbdata:/var/lib/mysql
     env_file: .env
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    networks:
+      - gateway_net
+
 networks:
-  default:
-    name: ${NETWORK_ID}
+  gateway_net:
+    name: ${NETWORK_ID:-web_gateway}

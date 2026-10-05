@@ -1,7 +1,22 @@
-caddy/*
-!caddy/.keep
-
-dbdata/*
-!dbdata/.keep
-
+# --- 本地环境（可能含密码 / 真实域名）---
 .env
+
+# --- 基础设施持久化数据 ---
+infra/caddy/data/*
+!infra/caddy/data/.keep
+infra/caddy/config/*
+!infra/caddy/config/.keep
+infra/dbdata/*
+!infra/dbdata/.keep
+
+# --- 扩展服务本地配置 ---
+services/hy2/hy2.env
+
+# --- 密钥 ---
+secrets/*
+!secrets/.gitkeep
+
+# --- 系统垃圾 ---
+.DS_Store
+Thumbs.db
+*.swp

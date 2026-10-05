@@ -1,0 +1,431 @@
+#!/bin/bash
+
+# ==============================================================================
+# cloud —— 统一管理入口
+#
+#   cloud up|down|restart|status|logs ...     底座基础设施
+#   cloud hy2 <action> ...                    Hysteria 2 扩展服务
+#   cloud update [infra|hy2|all]              更新
+#   cloud setup / clean / help                生命周期
+#
+# 该脚本被软链到 /usr/local/bin 后可在任意目录执行，会自动定位项目根目录
+# ==============================================================================
+
+set -euo pipefail
+
+# --- 解析软链，锁定真实项目目录 -----------------------------------------------
+SOURCE="${BASH_SOURCE[0]}"
+while [ -h "$SOURCE" ]; do
+    DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+    SOURCE="$(readlink "$SOURCE")"
+    [[ $SOURCE != /* ]] && SOURCE="$DIR/$SOURCE"
+done
+BIN_DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+PROJECT_DIR="$(cd -P "$BIN_DIR/.." && pwd)"
+cd "$PROJECT_DIR"
+
+source "$BIN_DIR/utils.sh"
+
+ENV_FILE="$PROJECT_DIR/.env"
+
+# ------------------------------------------------------------------------------
+# Docker Compose 封装
+# ------------------------------------------------------------------------------
+dc() { docker compose --project-directory "$PROJECT_DIR" -f "$PROJECT_DIR/compose.yaml" "$@"; }
+
+require_docker() {
+    has_cmd docker || die "未检测到 Docker，请先执行: cloud setup"
+    docker compose version >/dev/null 2>&1 || die "未检测到 Docker Compose 插件，请执行: cloud setup"
+}
+
+# ------------------------------------------------------------------------------
+# 底座基础设施
+# ------------------------------------------------------------------------------
+infra_up() {
+    require_docker
+    [[ -f "$ENV_FILE" ]] || die "缺少 .env 配置，请先执行: cloud setup"
+    log_step "启动底座容器 (Caddy 网关 / MariaDB) ..."
+    dc up -d
+    print_status
+}
+
+infra_down() {
+    require_docker
+    log_step "停止底座容器 ..."
+    dc down
+}
+
+infra_restart() {
+    require_docker
+    log_step "重启底座容器 ..."
+    dc restart
+}
+
+infra_ps() { require_docker; dc ps; }
+
+# --- 更新 --------------------------------------------------------------------
+# 说明: Docker Compose 没有内建自动更新能力。
+#   - `docker compose up` 不会拉取新镜像（除镜像不存在时）
+#   - 只有 Swarm 模式的 `docker stack deploy --update-config` 才支持滚动自动更新
+#   因此这里实现 pull + 镜像 ID 比对 + 按需重建，做到"无更新则零重启"。
+compose_service_image() {
+    local svc=$1
+    dc config 2>/dev/null | awk -v svc="$svc" '
+        /^  [A-Za-z0-9_.-]+:[[:space:]]*$/ {
+            key = $1; sub(/:$/, "", key); cur = key; next
+        }
+        cur == svc && /^    image:/ {
+            sub(/^    image:[[:space:]]*/, ""); print; exit
+        }
+    '
+}
+
+running_image_id() {
+    local svc=$1 cid
+    cid=$(dc ps -q "$svc" 2>/dev/null | head -n 1)
+    [ -z "$cid" ] && { echo "-"; return; }
+    docker inspect -f '{{.Image}}' "$cid" 2>/dev/null || echo "-"
+}
+
+infra_update() {
+    require_docker
+    local dry_run=${1:-}
+    local services svc img running pulled changed=0
+
+    services=$(dc config --services)
+
+    echo -e "${C_BOLD}更新前${C_NC}"
+    for svc in $services; do
+        img=$(compose_service_image "$svc")
+        running=$(running_image_id "$svc")
+        printf '  %-8s %-44s %s\n' "$svc" "$img" "${running:0:19}"
+    done
+
+    log_step "拉取最新镜像 ..."
+    dc pull
+
+    echo ""
+    echo -e "${C_BOLD}比对结果${C_NC}"
+    for svc in $services; do
+        img=$(compose_service_image "$svc")
+        pulled=$(docker image inspect -f '{{.Id}}' "$img" 2>/dev/null || echo "-")
+        running=$(running_image_id "$svc")
+
+        if [ "$running" = "-" ]; then
+            printf '  %-8s %s容器未运行，将由 up -d 创建%s\n' "$svc" "$C_YELLOW" "$C_NC"
+            changed=1
+        elif [ "$pulled" != "$running" ]; then
+            printf '  %-8s %s有新版本%s  %s -> %s\n' \
+                "$svc" "$C_GREEN" "$C_NC" "${running:0:19}" "${pulled:0:19}"
+            changed=1
+        else
+            printf '  %-8s 已是最新\n' "$svc"
+        fi
+    done
+
+    if [ "$changed" -eq 0 ]; then
+        log_ok "全部镜像均为最新，容器未做任何变动"
+        return 0
+    fi
+
+    if [ "$dry_run" = "--dry-run" ]; then
+        log_info "--dry-run: 仅拉取镜像，未重建容器。去掉该参数即可应用更新"
+        return 0
+    fi
+
+    echo ""
+    log_warn "重建容器期间网关与数据库会短暂中断"
+    log_step "重建容器以应用更新 ..."
+    dc up -d --remove-orphans
+
+    echo ""
+    log_ok "基础设施已更新"
+    if dc config --services | grep -qx db; then
+        echo -e "${C_YELLOW}提示${C_NC}: 数据库已拉取新镜像。若本次跨越了 MariaDB 大版本，"
+        echo "      建议先备份再执行: docker exec \$(docker compose ps -q db) mariadb-dump -uroot -p 库名 > 备份.sql"
+    fi
+}
+
+do_update() {
+    local target=${1:-}
+
+    case "$target" in
+        infra|base)
+            infra_update "${2:-}"
+            ;;
+        hy2|hysteria)
+            local hy2="$PROJECT_DIR/services/hy2/hy2.sh"
+            [[ -f "$hy2" ]] || die "未找到 services/hy2/hy2.sh"
+            exec bash "$hy2" update
+            ;;
+        all)
+            infra_update "${2:-}"
+            echo ""
+            bash "$PROJECT_DIR/services/hy2/hy2.sh" update || log_warn "hy2 更新失败"
+            ;;
+        ""|help|-h|--help)
+            _banner "更新"
+            cat <<EOF
+  ${C_BOLD}infra${C_NC}   拉取并比对 Caddy / MariaDB 镜像，无更新则零重启
+           --dry-run  仅拉取并报告，不重建容器
+  ${C_BOLD}hy2${C_NC}     更新 Hysteria 2 二进制，恢复加固版 systemd unit 并重启
+  ${C_BOLD}all${C_NC}     依次更新两者
+
+  用法: cloud update [infra|hy2|all] [--dry-run]  （亦可简写 cl update ...）
+
+  注: Docker Compose 无内建自动更新，此命令是等价且可控的手动方案。
+      如需全自动，可额外部署 Watchtower（第三方），但无法自定义更新前后钩子。
+EOF
+            ;;
+        *)
+            log_err "未知更新目标: $target（可选 infra / hy2 / all）"
+            exit 1
+            ;;
+    esac
+}
+
+infra_logs() {
+    local svc=${1:-}
+    shift || true
+    if [ "$svc" = "hy2" ] || [ "$svc" = "hysteria" ]; then
+        if service_is_active hysteria-server || systemctl list-unit-files 2>/dev/null | grep -q '^hysteria-server'; then
+            journalctl --no-pager -u hysteria-server -f -n 200 "$@"
+        else
+            log_warn "Hysteria 2 服务未安装或未注册"
+        fi
+        return 0
+    fi
+    require_docker
+    if [ -n "$svc" ]; then
+        dc logs -f --tail=200 "$svc" "$@"
+    else
+        dc logs -f --tail=200
+    fi
+}
+
+# 证书有效期（读取 Caddy 落盘的证书文件）
+cert_info() {
+    local domain=${1,,}
+    local crt days
+    local cert_base="$PROJECT_DIR/infra/caddy/data/caddy/certificates"
+    if [ ! -r "$cert_base" ] && [ "$(id -u)" -ne 0 ]; then
+        printf '  证书    : %s已配置 (需 root 权限读取具体证书状态)%s\n' "$C_BLUE" "$C_NC"
+        return
+    fi
+    crt=$(find "$cert_base" -type f -name "${domain}.crt" 2>/dev/null \
+        | xargs -r ls -t 2>/dev/null | head -n 1)
+    if [ -z "$crt" ]; then
+        printf '  证书    : %s未签发或待签发%s\n' "$C_YELLOW" "$C_NC"
+        return
+    fi
+    if days=$(cert_days_left "$crt"); then
+        printf '  证书    : %s剩余 %s 天%s\n' "$(cert_color "$days")" "$days" "$C_NC"
+    else
+        printf '  证书    : %s已签发（无法解析有效期）%s\n' "$C_GREEN" "$C_NC"
+    fi
+}
+
+print_status() {
+    print_rule
+    echo -e "${C_BOLD}底座基础设施${C_NC}"
+    print_rule
+
+    if has_cmd docker; then
+        dc ps --format 'table {{.Service}}\t{{.Status}}\t{{.Ports}}' 2>/dev/null || dc ps
+    else
+        log_warn "Docker 未安装"
+    fi
+
+    echo ""
+    local domain
+    domain=$(env_get "$ENV_FILE" SITE_DOMAIN "")
+    echo -e "${C_BOLD}运行信息${C_NC}"
+    printf '  域名    : %s\n' "${domain:-未配置}"
+    printf '  网络    : %s\n' "$(env_get "$ENV_FILE" NETWORK_ID web_gateway)"
+    if [ -n "$domain" ]; then
+        cert_info "$domain"
+    fi
+
+    echo ""
+    echo -e "${C_BOLD}Hysteria 2${C_NC}"
+    if service_is_active hysteria-server; then
+        echo -e "  服务    : ${C_GREEN}运行中${C_NC}"
+    else
+        echo -e "  服务    : ${C_YELLOW}未运行${C_NC}"
+    fi
+    if has_cmd iptables; then
+        local raw_hops
+        if raw_hops=$(iptables -t nat -S PREROUTING 2>/dev/null); then
+            local hops
+            hops=$(echo "$raw_hops" | grep -c 'hysteria2-' || true)
+            printf '  端口跳跃: %s 条规则\n' "${hops:-0}"
+        else
+            printf '  端口跳跃: %s(需 root 权限查看)%s\n' "$C_YELLOW" "$C_NC"
+        fi
+    fi
+    print_rule
+}
+
+# ------------------------------------------------------------------------------
+# 生命周期
+# ------------------------------------------------------------------------------
+do_setup() {
+    local target="$BIN_DIR/setup"
+    [[ -x "$target" ]] || die "未找到可执行的 bin/setup"
+    exec "$target"
+}
+
+do_clean() {
+    check_root
+    confirm "⚠️  确认下线容器、清空数据与配置？此操作不可逆 (y/N)" "n" \
+        || { echo "已取消。"; exit 0; }
+
+    require_docker
+
+    log_step "下线底座容器 ..."
+    dc down || true
+
+    if service_is_active hysteria-server || systemctl list-unit-files 2>/dev/null | grep -q '^hysteria-server'; then
+        log_step "卸载 Hysteria 2 ..."
+        bash "$PROJECT_DIR/services/hy2/hy2.sh" uninstall --yes || true
+    fi
+
+    log_step "清理端口跳跃 iptables 规则 ..."
+    # 行号倒序删除（--comment 的引号无法安全地经 shell 拆词还原）
+    clean_hop_rules() {
+        local cmd=$1
+        has_cmd "$cmd" || return 0
+        local nums n
+        nums=$("$cmd" -t nat -L PREROUTING -n --line-numbers 2>/dev/null \
+               | grep -F 'hysteria2-' | awk '{print $1}' | sort -rn)
+        [ -z "$nums" ] && return 0
+        while IFS= read -r n; do
+            [ -z "$n" ] && continue
+            "$cmd" -t nat -D PREROUTING "$n" 2>/dev/null || true
+        done <<< "$nums"
+    }
+    clean_hop_rules iptables
+    clean_hop_rules ip6tables
+    if has_cmd netfilter-persistent; then
+        netfilter-persistent save 2>/dev/null || true
+    else
+        mkdir -p /etc/iptables
+        iptables-save > /etc/iptables/rules.v4 2>/dev/null || true
+        ip6tables-save > /etc/iptables/rules.v6 2>/dev/null || true
+    fi
+
+    log_step "清空持久化数据 (保留仓库内受版本控制的文件) ..."
+    rm -rf "$PROJECT_DIR/infra/caddy/data" "$PROJECT_DIR/infra/caddy/config" "$PROJECT_DIR/infra/dbdata"
+    # 重建目录骨架与 .keep，避免 git 出现误删除
+    for d in infra/caddy/data infra/caddy/config infra/dbdata; do
+        mkdir -p "$PROJECT_DIR/$d"
+        [ -e "$PROJECT_DIR/$d/.keep" ] || touch "$PROJECT_DIR/$d/.keep"
+    done
+    rm -f  "$ENV_FILE"
+    rm -f  "$PROJECT_DIR/services/hy2/hy2.env"
+
+    log_step "移除全局命令软链 ..."
+    rm -f /usr/local/bin/cloud /usr/local/bin/cl /usr/local/bin/cloudlab /usr/local/bin/lab
+
+    log_ok "清理完成，仓库代码与站点源码已保留"
+}
+
+do_uninstall_link() {
+    check_root
+    rm -f /usr/local/bin/cloud /usr/local/bin/cl /usr/local/bin/cloudlab /usr/local/bin/lab
+    log_ok "已移除全局命令 (cloud / cl)"
+}
+
+# ------------------------------------------------------------------------------
+# 帮助
+# ------------------------------------------------------------------------------
+show_help() {
+    cat <<EOF
+${C_BOLD}cloud${C_NC} —— 服务器基础设施 + Hysteria 2 一体化管理
+
+${C_BOLD}用法${C_NC}
+  cloud <命令> [参数]  （亦可简写为 cl <命令>）
+
+${C_BOLD}生命周期${C_NC}
+  setup                新机初始化：依赖检查、装 Docker、挂载全局命令、引导配置
+  clean                下线服务并清空数据与配置（保留仓库代码）
+  unlink               仅移除 /usr/local/bin 下的全局命令软链
+
+${C_BOLD}底座基础设施${C_NC}
+  up                   启动 Caddy 网关与数据库
+  down                 停止底座容器
+  restart              重启底座容器
+  status               查看容器、端口、证书有效期、hy2 状态
+  ps                   查看容器列表
+  logs [caddy|db]      跟踪容器日志（默认全部）
+
+${C_BOLD}更新${C_NC}
+  cloud update                 查看更新说明
+  cloud update infra           仅更新底座容器镜像（无变动则零重启）
+  cloud update hy2             仅更新 Hysteria 2
+  cloud update all             依次更新两者
+
+${C_BOLD}Hysteria 2${C_NC}
+  cloud hy2 <action>
+
+  install              安装 hy2 二进制并注册 systemd 服务
+  config               交互式配置（端口 / 密码 / 带宽 / 跳跃范围）
+  start | stop | restart
+  status               运行状态 + 端口跳跃规则
+  log                  实时日志
+  debug                前台 debug 启动排查
+  export               输出 Clash 配置片段与 hy2:// 导入链接
+  sync-cert            立即从 Caddy 同步证书并重启应用
+  bbr                  应用内核 / ulimit 网络优化
+  clear-hop            清理 iptables 端口跳跃规则
+  update               更新 hy2 二进制并重启
+  uninstall            干净卸载并清理 iptables 规则
+
+${C_BOLD}示例${C_NC}
+  cloud setup
+  cloud hy2 config
+  cloud hy2 export
+  cloud update infra --dry-run
+  cloud logs caddy
+EOF
+}
+
+# ------------------------------------------------------------------------------
+# 路由
+# ------------------------------------------------------------------------------
+main() {
+    local cmd=${1:-help}
+    shift || true
+
+    case "$cmd" in
+        help|-h|--help) show_help ;;
+        version|-v|--version) echo "cloud $(cat "$PROJECT_DIR/VERSION" 2>/dev/null || echo dev)" ;;
+
+        setup)        do_setup ;;
+        clean)        do_clean ;;
+        unlink)       do_uninstall_link ;;
+
+        up)           infra_up ;;
+        down)         infra_down ;;
+        restart)      infra_restart ;;
+        status)       print_status ;;
+        ps)           infra_ps ;;
+        update)       do_update "$@" ;;
+        logs|log)     infra_logs "$@" ;;
+
+        hy2|hysteria)
+            local hy2="$PROJECT_DIR/services/hy2/hy2.sh"
+            [[ -f "$hy2" ]] || die "未找到 services/hy2/hy2.sh"
+            exec bash "$hy2" "$@"
+            ;;
+
+        *)
+            log_err "未知命令: $cmd"
+            echo ""
+            show_help
+            exit 1
+            ;;
+    esac
+}
+
+main "$@"

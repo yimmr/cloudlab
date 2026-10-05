@@ -1,3 +1,0 @@
-#!/bin/bash
-
-sudo /usr/local/bin/hysteria server --config /etc/hysteria/config.yaml --log-level debug
