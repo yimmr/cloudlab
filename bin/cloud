@@ -5,7 +5,9 @@
 #
 #   cloud up|down|restart|status|logs ...     底座基础设施
 #   cloud hy2 <action> ...                    Hysteria 2 扩展服务
-#   cloud update [infra|hy2|all]              更新
+#   cloud vless <action> ...                  VLESS+WS (Cloudflare) 扩展服务
+#   cloud netcheck [host] [-s ssh]            客户端链路质量诊断
+#   cloud update [infra|hy2|vless|all]        更新
 #   cloud setup / clean / help                生命周期
 #
 # 该脚本被软链到 /usr/local/bin 后可在任意目录执行，会自动定位项目根目录
@@ -158,10 +160,17 @@ do_update() {
             [[ -f "$hy2" ]] || die "未找到 services/hy2/hy2.sh"
             exec bash "$hy2" update
             ;;
+        vless)
+            local vless="$PROJECT_DIR/services/vless/vless.sh"
+            [[ -f "$vless" ]] || die "未找到 services/vless/vless.sh"
+            exec bash "$vless" update
+            ;;
         all)
             infra_update "${2:-}"
             echo ""
             bash "$PROJECT_DIR/services/hy2/hy2.sh" update || log_warn "hy2 更新失败"
+            echo ""
+            bash "$PROJECT_DIR/services/vless/vless.sh" update || log_warn "vless 更新失败"
             ;;
         ""|help|-h|--help)
             _banner "更新"
@@ -169,16 +178,17 @@ do_update() {
   ${C_BOLD}infra${C_NC}   拉取并比对 Caddy / MariaDB 镜像，无更新则零重启
            --dry-run  仅拉取并报告，不重建容器
   ${C_BOLD}hy2${C_NC}     更新 Hysteria 2 二进制，恢复加固版 systemd unit 并重启
-  ${C_BOLD}all${C_NC}     依次更新两者
+  ${C_BOLD}vless${C_NC}   更新 xray 镜像并重建容器
+  ${C_BOLD}all${C_NC}     依次更新三者
 
-  用法: cloud update [infra|hy2|all] [--dry-run]  （亦可简写 cl update ...）
+  用法: cloud update [infra|hy2|vless|all] [--dry-run]  （亦可简写 cl update ...）
 
   注: Docker Compose 无内建自动更新，此命令是等价且可控的手动方案。
       如需全自动，可额外部署 Watchtower（第三方），但无法自定义更新前后钩子。
 EOF
             ;;
         *)
-            log_err "未知更新目标: $target（可选 infra / hy2 / all）"
+            log_err "未知更新目标: $target（可选 infra / hy2 / vless / all）"
             exit 1
             ;;
     esac
@@ -193,6 +203,10 @@ infra_logs() {
         else
             log_warn "Hysteria 2 服务未安装或未注册"
         fi
+        return 0
+    fi
+    if [ "$svc" = "vless" ]; then
+        docker logs -f --tail 200 xray "$@" 2>/dev/null || log_warn "xray 容器未运行"
         return 0
     fi
     require_docker
@@ -263,6 +277,26 @@ print_status() {
             printf '  端口跳跃: %s(需 root 权限查看)%s\n' "$C_YELLOW" "$C_NC"
         fi
     fi
+
+    echo ""
+    echo -e "${C_BOLD}VLESS + WebSocket${C_NC}"
+    if has_cmd docker && docker ps --format '{{.Names}}' 2>/dev/null | grep -qx xray; then
+        echo -e "  容器    : ${C_GREEN}运行中${C_NC} (xray)"
+        local vless_domain
+        vless_domain=$(env_get "$PROJECT_DIR/services/vless/vless.env" VLESS_DOMAIN "")
+        if [ -n "$vless_domain" ]; then
+            printf '  域名    : %s\n' "$vless_domain"
+            local vless_code
+            vless_code=$(curl -s -o /dev/null -w "%{http_code}" -m 6 "https://${vless_domain}/" 2>/dev/null || echo "000")
+            case "$vless_code" in
+                521|522|523|525|526|530) printf '  回源    : %s失败 (HTTP %s)%s\n' "$C_RED" "$vless_code" "$C_NC" ;;
+                000)                     printf '  回源    : %s无法连接%s\n' "$C_YELLOW" "$C_NC" ;;
+                *)                       printf '  回源    : %s正常 (HTTP %s)%s\n' "$C_GREEN" "$vless_code" "$C_NC" ;;
+            esac
+        fi
+    else
+        echo -e "  容器    : ${C_YELLOW}未部署${C_NC} (cloud vless install)"
+    fi
     print_rule
 }
 
@@ -288,6 +322,11 @@ do_clean() {
     if service_is_active hysteria-server || systemctl list-unit-files 2>/dev/null | grep -q '^hysteria-server'; then
         log_step "卸载 Hysteria 2 ..."
         bash "$PROJECT_DIR/services/hy2/hy2.sh" uninstall --yes || true
+    fi
+
+    if has_cmd docker && docker ps -a --format '{{.Names}}' 2>/dev/null | grep -qx xray; then
+        log_step "卸载 VLESS + WebSocket ..."
+        bash "$PROJECT_DIR/services/vless/vless.sh" uninstall --yes || true
     fi
 
     log_step "清理端口跳跃 iptables 规则 ..."
@@ -323,6 +362,7 @@ do_clean() {
     done
     rm -f  "$ENV_FILE"
     rm -f  "$PROJECT_DIR/services/hy2/hy2.env"
+    rm -f  "$PROJECT_DIR/services/vless/vless.env" "$PROJECT_DIR/services/vless/config.json"
 
     log_step "移除全局命令软链 ..."
     rm -f /usr/local/bin/cloud /usr/local/bin/cl /usr/local/bin/cloudlab /usr/local/bin/lab
@@ -363,7 +403,8 @@ ${C_BOLD}更新${C_NC}
   cloud update                 查看更新说明
   cloud update infra           仅更新底座容器镜像（无变动则零重启）
   cloud update hy2             仅更新 Hysteria 2
-  cloud update all             依次更新两者
+  cloud update vless           仅更新 xray 镜像
+  cloud update all             依次更新全部
 
 ${C_BOLD}Hysteria 2${C_NC}
   cloud hy2 <action>
@@ -381,10 +422,29 @@ ${C_BOLD}Hysteria 2${C_NC}
   update               更新 hy2 二进制并重启
   uninstall            干净卸载并清理 iptables 规则
 
+${C_BOLD}VLESS + WebSocket (Cloudflare)${C_NC}
+  cloud vless <action>
+
+  install              部署 xray 容器并等待回源就绪，输出客户端配置
+  config               交互式配置（域名 / UUID / WS 路径）
+  status               容器状态 + 回源检测 + 证书
+  export               输出 Clash 配置片段与 vless:// 导入链接
+  log                  实时日志
+  update               更新 xray 镜像并重建
+  uninstall            卸载容器与配置
+
+${C_BOLD}链路诊断${C_NC}
+  cloud netcheck [目标] [-s ssh别名]
+                       在客户端运行：ICMP 丢包/RTT、TCP 握手、HTTPS 回源
+                       -s 时附加 UDP 大包到达率深度测试
+
 ${C_BOLD}示例${C_NC}
   cloud setup
   cloud hy2 config
   cloud hy2 export
+  cloud vless install
+  cloud vless export
+  cloud netcheck -s hdus
   cloud update infra --dry-run
   cloud logs caddy
 EOF
@@ -417,6 +477,18 @@ main() {
             local hy2="$PROJECT_DIR/services/hy2/hy2.sh"
             [[ -f "$hy2" ]] || die "未找到 services/hy2/hy2.sh"
             exec bash "$hy2" "$@"
+            ;;
+
+        vless|v2ray)
+            local vless="$PROJECT_DIR/services/vless/vless.sh"
+            [[ -f "$vless" ]] || die "未找到 services/vless/vless.sh"
+            exec bash "$vless" "$@"
+            ;;
+
+        netcheck)
+            local netcheck="$PROJECT_DIR/bin/netcheck"
+            [[ -f "$netcheck" ]] || die "未找到 bin/netcheck"
+            exec bash "$netcheck" "$@"
             ;;
 
         *)

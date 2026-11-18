@@ -1,0 +1,26 @@
+name: vless
+
+# ==============================================================================
+# VLESS + WebSocket 落地（经 Cloudflare 橙云回源，TLS 在 CF 边缘终结）
+#   由 services/vless/vless.sh 管理，勿手工编辑容器
+#   Caddy 通过 label 自动发现路由：us2.yimmx.xyz -> 容器:10088 (明文 WS)
+# ==============================================================================
+services:
+  xray:
+    image: teddysun/xray:latest
+    container_name: xray
+    restart: unless-stopped
+    volumes:
+      - ./config.json:/etc/xray/config.json:ro
+    expose:
+      - "10088"
+    labels:
+      caddy: ${VLESS_DOMAIN:-us2.yimmx.xyz}
+      caddy.reverse_proxy: "{{upstreams 10088}}"
+    networks:
+      - external_net
+
+networks:
+  external_net:
+    name: ${NETWORK_ID:-web_gateway}
+    external: true

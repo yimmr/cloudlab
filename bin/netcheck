@@ -1,0 +1,150 @@
+#!/bin/bash
+
+# ==============================================================================
+# cloud netcheck —— 链路质量诊断（在客户端机器运行，只读探测）
+#
+#   用法: cloud netcheck [目标IP或域名] [-s ssh别名]
+#     无参    默认使用 hy2.env 的 HY2_DOMAIN（或 us3.yimmx.xyz）
+#     -s host 额外做 UDP 大包到达率测试（需能 ssh 到目标服务器抓包）
+# ==============================================================================
+
+set -euo pipefail
+
+SOURCE="${BASH_SOURCE[0]}"
+while [ -h "$SOURCE" ]; do
+    DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+    SOURCE="$(readlink "$SOURCE")"
+    [[ $SOURCE != /* ]] && SOURCE="$DIR/$SOURCE"
+done
+BIN_DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+PROJECT_DIR="$(cd -P "$BIN_DIR/.." && pwd)"
+
+source "$PROJECT_DIR/bin/utils.sh"
+
+TARGET=""
+SSH_HOST=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -s) SSH_HOST=${2:-}; shift 2 || true ;;
+        -h|--help)
+            echo "用法: cloud netcheck [目标IP或域名] [-s ssh别名]"
+            echo "  -s <host>  通过 ssh 在服务器端统计 UDP 到达率（深度测试）"
+            exit 0
+            ;;
+        *) TARGET=$1; shift ;;
+    esac
+done
+
+if [ -z "$TARGET" ]; then
+    TARGET=$(env_get "$PROJECT_DIR/services/hy2/hy2.env" HY2_DOMAIN "")
+    [ -n "$TARGET" ] || TARGET="us3.yimmx.xyz"
+fi
+
+# --- 解析目标 IP ---
+print_rule
+echo -e "${C_BOLD}链路诊断: ${TARGET}${C_NC}"
+print_rule
+
+IP=$(getent hosts "$TARGET" 2>/dev/null | awk '{print $1; exit}' || true)
+if [ -z "$IP" ]; then
+    if has_cmd python3; then
+        IP=$(python3 -c "import socket,sys; print(socket.getaddrinfo(sys.argv[1],None)[0][4][0])" "$TARGET" 2>/dev/null || true)
+    fi
+fi
+[ -n "$IP" ] || die "无法解析 ${TARGET}"
+printf '  解析    : %s -> %s\n\n' "$TARGET" "$IP"
+
+# --- 1. ICMP 丢包 / RTT ---
+PING_CNT=20
+printf '  %-10s %-42s\n' "[1/4]" "ICMP ping × ${PING_CNT} ..."
+PING_OUT=$(ping -c "$PING_CNT" -i 0.3 -W 2 "$IP" 2>&1 || true)
+LOSS=$(printf '%s' "$PING_OUT" | grep -oE '[0-9.]+% packet loss' | grep -oE '^[0-9.]+' || echo "100")
+RTT_LINE=$(printf '%s' "$PING_OUT" | grep 'rtt min/avg/max/mdev' || true)
+AVG=$(printf '%s' "$RTT_LINE" | sed -E 's|.*= ([0-9.]+)/.*|\1|' || echo "?")
+printf '  %-10s 丢包 %s%%  平均 RTT %s ms\n' "ICMP" "${LOSS}" "${AVG}"
+
+# --- 2. TCP 握手耗时 × 3 ---
+printf '  %-10s %-42s\n' "[2/4]" "TCP :443 握手 × 3 ..."
+TCP_OK=0
+TCP_TOTAL=0
+for i in 1 2 3; do
+    T=$(curl -o /dev/null -s -m 6 -w "%{time_connect}" "https://${TARGET}/" 2>/dev/null || echo "fail")
+    if [ "$T" != "fail" ] && [ -n "$T" ]; then
+        TCP_OK=$((TCP_OK + 1))
+        TCP_TOTAL=$(awk -v a="$TCP_TOTAL" -v b="$T" 'BEGIN{printf "%.3f", a+b}')
+        printf '  %-10s 第 %s 次: %s s\n' "TCP" "$i" "$T"
+    else
+        printf '  %-10s 第 %s 次: 失败\n' "TCP" "$i"
+    fi
+done
+
+# --- 3. HTTPS 回源 ---
+printf '  %-10s %-42s\n' "[3/4]" "HTTPS 请求 ..."
+HTTP_CODE=$(curl -o /dev/null -s -m 8 -w "%{http_code}" "https://${TARGET}/" 2>/dev/null || echo "000")
+TTFB=$(curl -o /dev/null -s -m 8 -w "%{time_starttransfer}" "https://${TARGET}/" 2>/dev/null || echo "?")
+printf '  %-10s HTTP %s  首字节 %s s\n' "HTTPS" "$HTTP_CODE" "$TTFB"
+
+# --- 4. UDP 大包到达率（需 -s） ---
+UDP_RATE=""
+if [ -n "$SSH_HOST" ]; then
+    printf '  %-10s %-42s\n' "[4/4]" "UDP 1200B × 10 到达率（经 ${SSH_HOST} 抓包）..."
+    PUB_IP=$(curl -s -m 5 https://api.ipify.org 2>/dev/null || curl -s -m 5 https://ifconfig.me 2>/dev/null || true)
+    if [ -z "$PUB_IP" ]; then
+        printf '  %-10s 无法获取本机公网 IP，跳过\n' "UDP"
+    else
+        CAP_FILE=$(mktemp)
+        timeout 25 ssh -o BatchMode=yes -o ConnectTimeout=8 "$SSH_HOST" \
+            "timeout 18 tcpdump -ni any 'udp and src host ${PUB_IP} and dst port 443' -l -c 40 2>/dev/null" \
+            > "$CAP_FILE" 2>/dev/null &
+        CAP_PID=$!
+        sleep 4
+        if has_cmd python3; then
+            for _ in 1 2 3 4 5 6 7 8 9 10; do
+                python3 -c "import socket,sys; s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM); s.sendto(b'NETCHK'+b'x'*1194,(sys.argv[1],443))" "$IP" 2>/dev/null || true
+                sleep 0.4
+            done
+        else
+            for _ in 1 2 3 4 5 6 7 8 9 10; do
+                timeout 2 bash -c "{ printf 'NETCHK'; head -c 1194 /dev/zero | tr '\\0' 'X'; } > /dev/udp/${IP}/443" 2>/dev/null || true
+                sleep 0.4
+            done
+        fi
+        wait "$CAP_PID" 2>/dev/null || true
+        ARRIVED=$(grep -c "length 1200" "$CAP_FILE" 2>/dev/null || true)
+        rm -f "$CAP_FILE"
+        ARRIVED=${ARRIVED:-0}
+        UDP_RATE="$ARRIVED"
+        printf '  %-10s 发送 10 包，服务器收到 %s 包\n' "UDP" "$UDP_RATE"
+    fi
+else
+    printf '  %-10s %s\n' "[4/4]" "跳过（加 -s ssh别名 可测 UDP 到达率）"
+fi
+
+# --- 结论 ---
+echo ""
+print_rule
+echo -e "${C_BOLD}线路质量结论${C_NC}"
+print_rule
+
+LOSS_N=${LOSS%%.*}
+VERDICT_COLOR=$C_GREEN
+VERDICT="优"
+if [ "${LOSS_N:-100}" -ge 10 ] 2>/dev/null; then
+    VERDICT_COLOR=$C_RED; VERDICT="差"
+elif [ "${LOSS_N:-100}" -ge 3 ] 2>/dev/null; then
+    VERDICT_COLOR=$C_YELLOW; VERDICT="中"
+fi
+
+echo -e "  综合评级: ${VERDICT_COLOR}${VERDICT}${C_NC} (ICMP 丢包 ${LOSS}%)"
+if [ "$VERDICT" = "差" ]; then
+    echo -e "  ${C_YELLOW}丢包 ≥10%，QUIC/hysteria2 握手大概率超时；TCP 协议可连但速度受限。${C_NC}"
+    echo -e "  ${C_YELLOW}建议: 错峰使用 / 走 Cloudflare 中转 / 更换对国内优化线路的 VPS。${C_NC}"
+elif [ "$VERDICT" = "中" ]; then
+    echo -e "  ${C_YELLOW}丢包 3-10%，晚高峰可能出现握手慢或偶发超时。${C_NC}"
+else
+    echo -e "  ${C_GREEN}链路良好，hysteria2 / TCP 协议均可正常使用。${C_NC}"
+fi
+if [ -n "$UDP_RATE" ] && [ "$UDP_RATE" -lt 7 ] 2>/dev/null; then
+    echo -e "  ${C_RED}UDP 到达率偏低 (${UDP_RATE}/10)，UDP 类协议(QUIC)受影响明显。${C_NC}"
+fi
+print_rule
