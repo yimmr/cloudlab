@@ -35,7 +35,8 @@ die() { log_err "$1"; exit 1; }
 prompt() {
     local message=$1 default_value=${2:-} user_input
     if [ -t 0 ]; then
-        read -e -r -p "$message" -i "$default_value" user_input
+        # Ctrl-D / EOF 时 read 返回非 0，需容忍以免 set -e 下静默退出
+        read -e -r -p "$message" -i "$default_value" user_input || true
         echo "$user_input"
     else
         read -r user_input 2>/dev/null || true

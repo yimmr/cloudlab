@@ -152,7 +152,7 @@ EOF
 # --- 二进制与运行用户 --------------------------------------------------------
 # 提取版本号（hysteria version 首行是 ASCII 艺术字，需过滤 Version: 行）
 hy2_version() {
-    hysteria version 2>/dev/null | grep -i '^Version:' | head -n1 | tr -d '\r\t' | sed 's/^[Vv]ersion:[[:space:]]*[Vv]*//'
+    hysteria version 2>/dev/null | grep -i '^Version:' | head -n1 | tr -d '\r\t' | sed 's/^[Vv]ersion:[[:space:]]*[Vv]*//' || true
 }
 
 ensure_hysteria_binary() {
@@ -240,9 +240,10 @@ remove_hop_rules() {
     has_cmd "$cmd" || return 0
 
     local nums n
+    # grep 无匹配时返回 1，配合 pipefail 会触发 errexit 静默退出（首次安装必然无历史规则）
     nums=$("$cmd" -t nat -L PREROUTING -n --line-numbers 2>/dev/null \
            | grep -E "hysteria2-" \
-           | awk '{print $1}' | sort -rn)
+           | awk '{print $1}' | sort -rn) || true
 
     [ -z "$nums" ] && return 0
 
@@ -587,12 +588,12 @@ action_sync_cert() {
     [ -n "$domain" ] || die "无法确定域名，请先执行 cloud hy2 config"
 
     local before=""
-    [ -f "$HY2_CERT_DIR/${domain}.crt" ] && before=$(md5sum "$HY2_CERT_DIR/${domain}.crt" | cut -d' ' -f1)
+    [ -f "$HY2_CERT_DIR/${domain}.crt" ] && before=$(md5sum "$HY2_CERT_DIR/${domain}.crt" | cut -d' ' -f1) || true
 
     sync_certificates "$domain" || exit 1
 
-    local after
-    after=$(md5sum "$HY2_CERT_DIR/${domain}.crt" | cut -d' ' -f1)
+    local after=""
+    after=$(md5sum "$HY2_CERT_DIR/${domain}.crt" 2>/dev/null | cut -d' ' -f1) || true
 
     if [ "$before" != "$after" ]; then
         if service_is_active "$HY2_SERVICE"; then
