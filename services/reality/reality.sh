@@ -28,8 +28,8 @@ REALITY_CONFIG_FILE="$REALITY_DIR/config.json"
 REALITY_COMPOSE_FILE="$REALITY_DIR/compose.yaml"
 REALITY_CONTAINER="xray-reality"
 DEFAULT_PORT=8443
-DEFAULT_DEST="gateway.icloud.com:443"
-DEFAULT_SNI="gateway.icloud.com"
+DEFAULT_DEST="addons.mozilla.org:443"
+DEFAULT_SNI="addons.mozilla.org"
 
 # ==============================================================================
 # 内部函数
