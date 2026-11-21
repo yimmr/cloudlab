@@ -491,6 +491,40 @@ action_config() {
     print_client_config "$domain" "$password" "$port" "$hop_range" "$bw_up" "$bw_down"
 }
 
+# 快速重置连接密码：零交互，只换密码，域名/端口/hop/带宽不变
+action_resetpass() {
+    check_root
+
+    local domain port hop_range bw_up bw_down
+    local old_password password
+    domain=$(hy2_env_get HY2_DOMAIN "")
+    port=$(hy2_env_get HY2_PORT 443)
+    hop_range=$(hy2_env_get HY2_HOP_RANGE "")
+    bw_up=$(hy2_env_get HY2_BW_UP "")
+    bw_down=$(hy2_env_get HY2_BW_DOWN "")
+
+    [ -n "$domain" ] || die "尚未配置，请执行: cloud hy2 config"
+    systemctl list-unit-files 2>/dev/null | grep -q "^${HY2_SERVICE}" \
+        || die "服务未安装，请执行: cloud hy2 install"
+    [ -f "$HY2_CONFIG_FILE" ] || die "缺少 $HY2_CONFIG_FILE，请执行: cloud hy2 config"
+
+    old_password=$(hy2_env_get HY2_PASSWORD "")
+    password=$(generate_password)
+
+    # 先写 env 与 config.yaml，再重启（两处一致后再生效）
+    hy2_env_set HY2_PASSWORD "$password"
+    generate_hy2_config "$domain" "$password" "$port"
+
+    log_step "重启 $HY2_SERVICE ..."
+    systemctl restart "$HY2_SERVICE"
+    log_ok "密码已重置"
+    [ -n "$old_password" ] && echo "  旧: $old_password"
+    echo "  新: $password"
+
+    echo ""
+    print_client_config "$domain" "$password" "$port" "$hop_range" "$bw_up" "$bw_down"
+}
+
 action_start() {
     check_root
     systemctl enable --now "$HY2_SERVICE"
@@ -701,6 +735,7 @@ main() {
     case "$action" in
         install)    action_install ;;
         config)     action_config ;;
+        resetpass|reset-pass|rotate) action_resetpass ;;
         start)      action_start ;;
         stop)       action_stop ;;
         restart)    action_restart ;;
@@ -715,7 +750,7 @@ main() {
         uninstall)  action_uninstall "$@" ;;
 
         help|-h|--help)
-            echo "Hysteria 2 管理: install | config | start | stop | restart | status | log | debug | export | sync-cert | bbr | clear-hop | update | uninstall"
+            echo "Hysteria 2 管理: install | config | resetpass | start | stop | restart | status | log | debug | export | sync-cert | bbr | clear-hop | update | uninstall"
             ;;
         *)
             log_err "未知 hy2 子命令: $action"

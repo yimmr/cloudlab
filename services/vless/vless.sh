@@ -229,6 +229,45 @@ action_config() {
     fi
 }
 
+# 快速重置 UUID（密码）：零交互，只换 UUID，域名与 WS 路径不变
+action_resetpass() {
+    check_root
+    ensure_env
+
+    local domain uuid path old_uuid
+    domain=$(vless_env_get VLESS_DOMAIN "")
+    path=$(vless_env_get VLESS_PATH "")
+    old_uuid=$(vless_env_get VLESS_UUID "")
+
+    [ -n "$domain" ] || die "尚未配置，请执行: cloud vless install"
+    [ -n "$path" ]   || die "缺少 WS 路径，请执行: cloud vless config"
+    [ -f "$VLESS_CONFIG_FILE" ] || die "缺少 $VLESS_CONFIG_FILE，请执行: cloud vless install"
+
+    uuid=$(generate_password)
+    vless_env_set VLESS_UUID "$uuid"
+    log_ok "UUID 已重置"
+    [ -n "$old_uuid" ] && echo "  旧: $old_uuid"
+    echo "  新: $uuid"
+
+    generate_config "$uuid" "$path"
+
+    if docker ps -a --format '{{.Names}}' 2>/dev/null | grep -qx "$VLESS_CONTAINER"; then
+        log_step "重建 xray 容器 ..."
+        vless_compose up -d --force-recreate
+    else
+        vless_compose up -d
+    fi
+    log_ok "xray 容器已更新"
+
+    echo ""
+    if wait_https_ready "$domain" 60; then
+        echo ""
+        print_client_config "$domain" "$uuid" "$path"
+    else
+        log_warn "回源未就绪，可稍后执行 cloud vless export 获取配置"
+    fi
+}
+
 action_status() {
     print_rule
     echo -e "${C_BOLD}VLESS + WebSocket 状态${C_NC}"
@@ -325,13 +364,14 @@ main() {
     case "$action" in
         install)    action_install ;;
         config)     action_config ;;
+        resetpass|reset-pass|rotate) action_resetpass ;;
         status)     action_status ;;
         export)     action_export ;;
         log|logs)   action_log ;;
         update|upgrade) action_update ;;
         uninstall)  action_uninstall "$@" ;;
         help|-h|--help)
-            echo "VLESS + WebSocket 管理: install | config | status | export | log | update | uninstall"
+            echo "VLESS + WebSocket 管理: install | config | resetpass | status | export | log | update | uninstall"
             ;;
         *)
             log_err "未知 vless 子命令: $action"
