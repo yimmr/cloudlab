@@ -7,7 +7,7 @@ name: reality
 # ==============================================================================
 services:
   xray:
-    image: teddysun/xray:latest
+    image: teddysun/xray:1.8.24
     container_name: xray-reality
     restart: unless-stopped
     volumes:
