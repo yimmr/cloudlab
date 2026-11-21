@@ -6,8 +6,9 @@
 #   cloud up|down|restart|status|logs ...     底座基础设施
 #   cloud hy2 <action> ...                    Hysteria 2 扩展服务
 #   cloud vless <action> ...                  VLESS+WS (Cloudflare) 扩展服务
+#   cloud reality <action> ...                VLESS-Reality (直连抗封锁) 扩展服务
 #   cloud netcheck [host] [-s ssh]            客户端链路质量诊断
-#   cloud update [infra|hy2|vless|all]        更新
+#   cloud update [infra|hy2|vless|reality|all] 更新
 #   cloud setup / clean / help                生命周期
 #
 # 该脚本被软链到 /usr/local/bin 后可在任意目录执行，会自动定位项目根目录
@@ -165,12 +166,19 @@ do_update() {
             [[ -f "$vless" ]] || die "未找到 services/vless/vless.sh"
             exec bash "$vless" update
             ;;
+        reality)
+            local reality="$PROJECT_DIR/services/reality/reality.sh"
+            [[ -f "$reality" ]] || die "未找到 services/reality/reality.sh"
+            exec bash "$reality" update
+            ;;
         all)
             infra_update "${2:-}"
             echo ""
             bash "$PROJECT_DIR/services/hy2/hy2.sh" update || log_warn "hy2 更新失败"
             echo ""
             bash "$PROJECT_DIR/services/vless/vless.sh" update || log_warn "vless 更新失败"
+            echo ""
+            bash "$PROJECT_DIR/services/reality/reality.sh" update || log_warn "reality 更新失败"
             ;;
         ""|help|-h|--help)
             _banner "更新"
@@ -179,16 +187,17 @@ do_update() {
            --dry-run  仅拉取并报告，不重建容器
   ${C_BOLD}hy2${C_NC}     更新 Hysteria 2 二进制，恢复加固版 systemd unit 并重启
   ${C_BOLD}vless${C_NC}   更新 xray 镜像并重建容器
-  ${C_BOLD}all${C_NC}     依次更新三者
+  ${C_BOLD}reality${C_NC} 更新 xray-reality 镜像并重建容器
+  ${C_BOLD}all${C_NC}     依次更新全部
 
-  用法: cloud update [infra|hy2|vless|all] [--dry-run]  （亦可简写 cl update ...）
+  用法: cloud update [infra|hy2|vless|reality|all] [--dry-run]  （亦可简写 cl update ...）
 
   注: Docker Compose 无内建自动更新，此命令是等价且可控的手动方案。
       如需全自动，可额外部署 Watchtower（第三方），但无法自定义更新前后钩子。
 EOF
             ;;
         *)
-            log_err "未知更新目标: $target（可选 infra / hy2 / vless / all）"
+            log_err "未知更新目标: $target（可选 infra / hy2 / vless / reality / all）"
             exit 1
             ;;
     esac
@@ -207,6 +216,10 @@ infra_logs() {
     fi
     if [ "$svc" = "vless" ]; then
         docker logs -f --tail 200 xray "$@" 2>/dev/null || log_warn "xray 容器未运行"
+        return 0
+    fi
+    if [ "$svc" = "reality" ]; then
+        docker logs -f --tail 200 xray-reality "$@" 2>/dev/null || log_warn "xray-reality 容器未运行"
         return 0
     fi
     require_docker
@@ -297,6 +310,19 @@ print_status() {
     else
         echo -e "  容器    : ${C_YELLOW}未部署${C_NC} (cloud vless install)"
     fi
+
+    echo ""
+    echo -e "${C_BOLD}VLESS-Reality (直连抗封锁)${C_NC}"
+    if has_cmd docker && docker ps --format '{{.Names}}' 2>/dev/null | grep -qx xray-reality; then
+        echo -e "  容器    : ${C_GREEN}运行中${C_NC} (xray-reality)"
+        local r_port r_sni
+        r_port=$(env_get "$PROJECT_DIR/services/reality/reality.env" REALITY_PORT "8443")
+        r_sni=$(env_get "$PROJECT_DIR/services/reality/reality.env" REALITY_SNI "gateway.icloud.com")
+        printf '  端口    : %s (TCP)\n' "$r_port"
+        printf '  伪装 SNI: %s\n' "$r_sni"
+    else
+        echo -e "  容器    : ${C_YELLOW}未部署${C_NC} (cloud reality install)"
+    fi
     print_rule
 }
 
@@ -327,6 +353,11 @@ do_clean() {
     if has_cmd docker && docker ps -a --format '{{.Names}}' 2>/dev/null | grep -qx xray; then
         log_step "卸载 VLESS + WebSocket ..."
         bash "$PROJECT_DIR/services/vless/vless.sh" uninstall --yes || true
+    fi
+
+    if has_cmd docker && docker ps -a --format '{{.Names}}' 2>/dev/null | grep -qx xray-reality; then
+        log_step "卸载 VLESS-Reality ..."
+        bash "$PROJECT_DIR/services/reality/reality.sh" uninstall --yes || true
     fi
 
     log_step "清理端口跳跃 iptables 规则 ..."
@@ -363,6 +394,7 @@ do_clean() {
     rm -f  "$ENV_FILE"
     rm -f  "$PROJECT_DIR/services/hy2/hy2.env"
     rm -f  "$PROJECT_DIR/services/vless/vless.env" "$PROJECT_DIR/services/vless/config.json"
+    rm -f  "$PROJECT_DIR/services/reality/reality.env" "$PROJECT_DIR/services/reality/config.json"
 
     log_step "移除全局命令软链 ..."
     rm -f /usr/local/bin/cloud /usr/local/bin/cl /usr/local/bin/cloudlab /usr/local/bin/lab
@@ -404,6 +436,7 @@ ${C_BOLD}更新${C_NC}
   cloud update infra           仅更新底座容器镜像（无变动则零重启）
   cloud update hy2             仅更新 Hysteria 2
   cloud update vless           仅更新 xray 镜像
+  cloud update reality         仅更新 xray-reality 镜像
   cloud update all             依次更新全部
 
 ${C_BOLD}Hysteria 2${C_NC}
@@ -435,6 +468,18 @@ ${C_BOLD}VLESS + WebSocket (Cloudflare)${C_NC}
   update               更新 xray 镜像并重建
   uninstall            卸载容器与配置
 
+${C_BOLD}VLESS-Reality (直连抗封锁)${C_NC}
+  cloud reality <action>
+
+  install              部署 xray-reality 容器并输出客户端配置
+  config               交互式配置（端口 / 伪装目标 / UUID / 密钥）
+  resetpass            快速重置 UUID 与密钥对，重建容器并输出新配置
+  status               容器状态 + 端口 + 伪装 SNI
+  export               输出 Clash 配置片段与 vless:// 导入链接
+  log                  实时日志
+  update               更新 xray 镜像并重建
+  uninstall            卸载容器与配置
+
 ${C_BOLD}链路诊断${C_NC}
   cloud netcheck [目标] [-s ssh别名]
                        在客户端运行：ICMP 丢包/RTT、TCP 握手、HTTPS 回源
@@ -446,6 +491,8 @@ ${C_BOLD}示例${C_NC}
   cloud hy2 export
   cloud vless install
   cloud vless export
+  cloud reality install
+  cloud reality export
   cloud netcheck -s hdus
   cloud update infra --dry-run
   cloud logs caddy
@@ -485,6 +532,12 @@ main() {
             local vless="$PROJECT_DIR/services/vless/vless.sh"
             [[ -f "$vless" ]] || die "未找到 services/vless/vless.sh"
             exec bash "$vless" "$@"
+            ;;
+
+        reality)
+            local reality="$PROJECT_DIR/services/reality/reality.sh"
+            [[ -f "$reality" ]] || die "未找到 services/reality/reality.sh"
+            exec bash "$reality" "$@"
             ;;
 
         netcheck)

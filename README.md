@@ -25,7 +25,9 @@ cloud/
 │   └── default/          # 默认 / 伪装站点源码
 │
 ├── services/             # 扩展服务（与底座解耦）
-│   └── hy2/              #   Hysteria 2 自治模块
+│   ├── hy2/              #   Hysteria 2 自治模块
+│   ├── vless/            #   VLESS + WebSocket (Cloudflare) 模块
+│   └── reality/          #   VLESS-Reality (直连抗封锁) 模块
 │
 ├── compose.yaml          # 底座编排（不含任何扩展服务痕迹）
 └── .env.example          # 环境变量模板
@@ -115,6 +117,19 @@ cloud hy2 export   # 导出客户端节点配置（或简写: cl hy2 export）
 | `cloud hy2 update` | 更新 hy2 二进制（恢复加固版 unit 并重启） |
 | `cloud hy2 bbr` | 应用内核 / ulimit 优化 |
 | `cloud hy2 uninstall` | 干净卸载并清理 iptables 规则 |
+
+### VLESS-Reality (直连抗封锁)
+
+| 命令 | 说明 |
+| --- | --- |
+| `cloud reality install` | 部署 xray-reality 容器，自动生成密钥并输出客户端配置 |
+| `cloud reality config` | 交互式配置（端口 / 伪装目标 / UUID / 密钥） |
+| `cloud reality resetpass` | 快速重置 UUID 与 x25519 密钥对，重建容器并输出新配置 |
+| `cloud reality status` | 查看运行状态、监听端口与伪装 SNI |
+| `cloud reality export` | 导出 Clash 配置片段与 `vless://` 导入链接 |
+| `cloud reality log` | 查看容器实时日志 |
+| `cloud reality update` | 更新 xray 镜像并重建容器 |
+| `cloud reality uninstall` | 卸载容器与配置文件 |
 
 ---
 

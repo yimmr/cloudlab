@@ -1,0 +1,16 @@
+name: reality
+
+# ==============================================================================
+# VLESS-Reality 扩展服务（纯 TCP 直连，借用大厂 TLS 证书伪装，抗主动探测）
+#   由 services/reality/reality.sh 管理，勿手工编辑容器
+#   独立绑定主机端口（默认 8443），不走 Caddy 反代与 Cloudflare CDN
+# ==============================================================================
+services:
+  xray:
+    image: teddysun/xray:latest
+    container_name: xray-reality
+    restart: unless-stopped
+    volumes:
+      - ./config.json:/etc/xray/config.json:ro
+    ports:
+      - "${REALITY_PORT:-8443}:${REALITY_PORT:-8443}"
